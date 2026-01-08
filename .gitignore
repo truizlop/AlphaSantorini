@@ -1,0 +1,16 @@
+# Swift Package Manager
+.build/
+
+# Xcode
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+
+# SwiftPM Xcode integration
+.swiftpm/xcode/package.xcworkspace
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
