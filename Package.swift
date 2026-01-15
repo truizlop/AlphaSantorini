@@ -28,6 +28,7 @@ let package = Package(
             name: "NeuralNetwork",
             dependencies: [
                 .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
             ]
         ),
         .target(
