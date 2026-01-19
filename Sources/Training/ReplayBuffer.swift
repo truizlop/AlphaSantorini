@@ -29,6 +29,7 @@ class ReplayBuffer {
     }
 
     func checkDiversity() {
+        guard samples.count > 0 else { return }
         let hashes = samples.map { $0.state.encoded().description.hashValue }
         let unique = Set(hashes).count
 
