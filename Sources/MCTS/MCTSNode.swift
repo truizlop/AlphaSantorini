@@ -58,9 +58,18 @@ public class MCTSNode<State: GameState> {
         let (policy, value) = evaluator.evaluate(state: state)
 
         let legalMoves = state.legalMoves()
-        for move in legalMoves {
+        guard !legalMoves.isEmpty else { return value }
+
+        let rawPriors = legalMoves.map { move -> Float in
+            let raw = policy[move] ?? 0
+            return raw.isFinite ? max(0, raw) : 0
+        }
+        let priorSum = rawPriors.reduce(0, +)
+        let fallbackPrior = 1.0 / Float(legalMoves.count)
+
+        for (index, move) in legalMoves.enumerated() {
             let childState = state.applying(move: move)
-            let prior = policy[move] ?? (1.0 / Float(legalMoves.count))
+            let prior = priorSum > 0 ? rawPriors[index] / priorSum : fallbackPrior
             let child = MCTSNode(
                 state: childState,
                 move: move,
