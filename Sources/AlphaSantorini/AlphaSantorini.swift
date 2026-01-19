@@ -1,14 +1,17 @@
-// The Swift Programming Language
-// https://docs.swift.org/swift-book
-// 
-// Swift Argument Parser
-// https://swiftpackageindex.com/apple/swift-argument-parser/documentation
-
-import ArgumentParser
+import Training
+import NeuralNetwork
+import Foundation
 
 @main
-struct AlphaSantorini: ParsableCommand {
-    mutating func run() throws {
-        print("Hello, world!")
+struct AlphaSantorini {
+    static func main() async throws {
+        let config = TrainingConfig()
+        try? FileManager.default.createDirectory(
+            at: config.checkpointDirectory,
+            withIntermediateDirectories: true
+        )
+        
+        let trainer = SantoriniTrainer(config: config)
+        await trainer.train(iterations: 500)
     }
 }
