@@ -21,7 +21,7 @@ public class SantoriniNet: Module {
     let valueHead: Linear
 
     public init(hiddenDimension: Int) {
-        self.layer1 = Linear(175, hiddenDimension)
+        self.layer1 = Linear(200, hiddenDimension)
         self.layer2 = Linear(hiddenDimension, hiddenDimension)
         self.layer3 = Linear(hiddenDimension, hiddenDimension)
         self.policyHead = Linear(hiddenDimension, 153)

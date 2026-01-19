@@ -14,18 +14,23 @@ extension GameState {
         let domes = board.level(building: .dome)
 
         // One-hot encoding for player's workers
-        var currentPlayerWorkers = Array<Float>(repeating: 0.0, count: 25)
+        var currentPlayerWorker1 = Array<Float>(repeating: 0.0, count: 25)
+        var currentPlayerWorker2 = Array<Float>(repeating: 0.0, count: 25)
         var otherPlayerWorkers = Array<Float>(repeating: 0.0, count: 25)
         workers.forEach { worker in
             let index = worker.position.row * 5 + worker.position.column
             if worker.player == turn {
-                currentPlayerWorkers[index] = 1.0
+                if worker.id == .one {
+                    currentPlayerWorker1[index] = 1.0
+                } else {
+                    currentPlayerWorker2[index] = 1.0
+                }
             } else {
                 otherPlayerWorkers[index] = 1.0
             }
         }
 
-        return level0 + level1 + level2 + level3 + domes + currentPlayerWorkers + otherPlayerWorkers
+        return level0 + level1 + level2 + level3 + domes + currentPlayerWorker1 + currentPlayerWorker2 + otherPlayerWorkers
     }
 }
 
