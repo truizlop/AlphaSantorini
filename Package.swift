@@ -18,7 +18,7 @@ let package = Package(
         .executableTarget(
             name: "AlphaSantorini",
             dependencies: [
-                "GameEngine",
+                "Training",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -32,11 +32,14 @@ let package = Package(
             ]
         ),
         .target(
-            name: "GameEngine",
+            name: "Training",
             dependencies: [
                 "Santorini",
                 "MCTS",
                 "NeuralNetwork",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXOptimizers", package: "mlx-swift"),
             ]
         ),
     ]
