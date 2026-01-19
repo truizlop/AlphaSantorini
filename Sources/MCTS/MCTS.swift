@@ -43,7 +43,7 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork>(
         node.backpropagate(value: value)
     }
 
-    return (bestMove(from: root, temperature: temperature), visitDistribution(from: root))
+    return (bestMove(from: root, temperature: temperature), visitDistribution(from: root, temperature: temperature))
 }
 
 private func bestMove<State>(
@@ -92,9 +92,11 @@ private func bestMove<State>(
 }
 
 private func visitDistribution<State: GameState>(
-    from node: MCTSNode<State>
+    from node: MCTSNode<State>,
+    temperature: Float
 ) -> [State.Move: Float] {
-    let totalVisits = Float(node.children.map(\.visits).reduce(0, +))
+    let visits = node.children.map { Float($0.visits) }
+    let totalVisits = visits.reduce(0, +)
 
     var distribution: [State.Move: Float] = [:]
     guard totalVisits > 0 else {
@@ -118,9 +120,25 @@ private func visitDistribution<State: GameState>(
         }
         return distribution
     }
-    for child in node.children {
-        if let move = child.move {
-            distribution[move] = Float(child.visits) / totalVisits
+    if temperature == 0 {
+        let maxVisits = visits.max() ?? 0
+        let maxCount = visits.filter { $0 == maxVisits }.count
+        let weight = maxCount > 0 ? 1.0 / Float(maxCount) : 0
+        for (index, child) in node.children.enumerated() {
+            if let move = child.move {
+                distribution[move] = visits[index] == maxVisits ? weight : 0
+            }
+        }
+        return distribution
+    }
+
+    let adjusted = visits.map { pow($0, 1.0 / temperature) }
+    let total = adjusted.reduce(0, +)
+    if total > 0 {
+        for (index, child) in node.children.enumerated() {
+            if let move = child.move {
+                distribution[move] = adjusted[index] / total
+            }
         }
     }
     return distribution
