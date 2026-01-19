@@ -6,7 +6,7 @@
 //
 
 extension GameState {
-    func encoded() -> [Int] {
+    public func encoded() -> [Float] {
         let level0 = board.level(building: .height0)
         let level1 = board.level(building: .height1)
         let level2 = board.level(building: .height2)
@@ -14,14 +14,14 @@ extension GameState {
         let domes = board.level(building: .dome)
 
         // One-hot encoding for player's workers
-        var currentPlayerWorkers = Array(repeating: 0, count: 25)
-        var otherPlayerWorkers = Array(repeating: 0, count: 25)
+        var currentPlayerWorkers = Array<Float>(repeating: 0.0, count: 25)
+        var otherPlayerWorkers = Array<Float>(repeating: 0.0, count: 25)
         workers.forEach { worker in
             let index = worker.position.row * 5 + worker.position.column
             if worker.player == turn {
-                currentPlayerWorkers[index] = 1
+                currentPlayerWorkers[index] = 1.0
             } else {
-                otherPlayerWorkers[index] = 1
+                otherPlayerWorkers[index] = 1.0
             }
         }
 
@@ -31,10 +31,10 @@ extension GameState {
 
 extension Board {
     // One hot encoding of the items at a given level
-    fileprivate func level(building: Building) -> [Int] {
+    fileprivate func level(building: Building) -> [Float] {
         board.flatMap { row in
             row.map { item in
-                (item == building) ? 1 : 0
+                (item == building) ? 1.0 : 0.0
             }
         }
     }
