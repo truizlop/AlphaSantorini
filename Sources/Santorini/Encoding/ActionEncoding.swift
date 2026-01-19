@@ -8,7 +8,7 @@
 extension Action {
     public static let total = Placement.total + Move.total
 
-    static func from(encoding: Int) -> Action? {
+    public static func from(encoding: Int) -> Action? {
         guard encoding >= 0 && encoding < total else {
             return nil
         }
@@ -16,6 +16,15 @@ extension Action {
             return Placement.from(encoding: encoding).map(Action.placement)
         } else {
             return Move.from(encoding: encoding - Placement.total).map(Action.move)
+        }
+    }
+
+    public func encoded() -> Int {
+        switch self {
+        case .placement(let placement):
+            placement.encoded()
+        case .move(let move):
+            Placement.total + move.encoded()
         }
     }
 }
@@ -39,6 +48,10 @@ extension Placement {
         let column = encoding % 5
         return Position(row: row, column: column).map(Placement.init)
     }
+
+    func encoded() -> Int {
+        position.row * 5 + position.column
+    }
 }
 
 extension Move {
@@ -58,7 +71,7 @@ extension Move {
         guard encoding >= 0 && encoding < total else {
             return nil
         }
-        let workerID = (encoding % 64 == 0) ? WorkerID.one : WorkerID.two
+        let workerID = encoding < 64 ? WorkerID.one : WorkerID.two
         let offset = workerID == .one ? 0 : -8
         let moveRawValue = encoding / 8 + offset
         let buildRawValue = encoding % 8
@@ -71,5 +84,12 @@ extension Move {
             moveDirection: moveDirection,
             buildDirection: buildDirection
         )
+    }
+
+    func encoded() -> Int {
+        let workerOffset = self.id == .one ? 0 : 64
+        let moveOffset = 8 * moveDirection.rawValue
+        let buildOffset = buildDirection.rawValue
+        return workerOffset + moveOffset + buildOffset
     }
 }
