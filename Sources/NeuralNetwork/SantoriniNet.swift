@@ -5,6 +5,7 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
+import Foundation
 import MLX
 import MLXNN
 
@@ -34,5 +35,30 @@ public class SantoriniNet: Module {
         let policy = softmax(policyHead(o3))
         let value = tanh(valueHead(o3))
         return (policy: policy, value: value)
+    }
+
+    public func evaluate(_ input: [Float]) -> (policy: [Float], value: Float) {
+        let mlxInput = MLXArray(input)
+        let (policy, value) = self(mlxInput)
+        return (policy.asArray(Float.self), value.asArray(Float.self)[0])
+    }
+
+    public func copyWeights(from other: SantoriniNet) {
+        let sourceParams = other.parameters()
+        self.update(parameters: sourceParams)
+        eval(self)
+    }
+
+    public func save(to url: URL) throws {
+        let params = self.parameters().flattened()
+        let dict = Dictionary(uniqueKeysWithValues: params)
+        try MLX.save(arrays: dict, url: url)
+    }
+
+    public func load(from url: URL) throws {
+        let arrays = try MLX.loadArrays(url: url)
+        let nestedParams = ModuleParameters.unflattened(arrays)
+        self.update(parameters: nestedParams)
+        eval(self)
     }
 }
