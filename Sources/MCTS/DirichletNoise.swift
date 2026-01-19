@@ -7,18 +7,27 @@
 
 import Foundation
 
+public struct DirichletNoise: Sendable {
+    let epsilon: Float
+    let alpha: Float
+
+    public init(epsilon: Float, alpha: Float) {
+        self.epsilon = epsilon
+        self.alpha = alpha
+    }
+}
+
 extension MCTSNode {
     func addDirichletNoise(
-        epsilon: Float = 0.25,
-        alpha: Float = 0.3
+        _ noise: DirichletNoise
     ) {
         guard !children.isEmpty else { return }
 
-        let alphas = Array(repeating: alpha, count: children.count)
-        let noise = sampleDirichlet(alpha: alphas)
+        let alphas = Array(repeating: noise.alpha, count: children.count)
+        let sample = sampleDirichlet(alpha: alphas)
 
         for (i, child) in children.enumerated() {
-            child.prior = (1 - epsilon) * child.prior + epsilon * noise[i]
+            child.prior = (1 - noise.epsilon) * child.prior + noise.epsilon * sample[i]
         }
     }
 }
@@ -32,6 +41,12 @@ func sampleDirichlet(alpha: [Float]) -> [Float] {
 }
 
 func sampleGamma(shape: Float) -> Float {
+    precondition(shape > 0, "Gamma shape must be > 0")
+    if shape < 1 {
+        // Gamma(k) = Gamma(k + 1) * U^(1/k) for k in (0, 1)
+        let u = Float.random(in: Float.leastNonzeroMagnitude ..< 1)
+        return sampleGamma(shape: shape + 1) * pow(u, 1.0 / shape)
+    }
     let d = shape - 1.0 / 3.0
     let c = 1.0 / sqrt(9.0 * d)
     while true {
