@@ -13,11 +13,19 @@ import MLXNN
 // Output: policy head (153 logits = 25 for worker placements + 128 for worker-move-build directions)
 //         value head (tanh value -1...1 expected for outcome)
 public class SantoriniNet: Module {
-    let layer1 = Linear(175, 256)
-    let layer2 = Linear(256, 256)
-    let layer3 = Linear(256, 256)
-    let policyHead = Linear(256, 153)
-    let valueHead = Linear(256, 1)
+    let layer1: Linear
+    let layer2: Linear
+    let layer3: Linear
+    let policyHead: Linear
+    let valueHead: Linear
+
+    public init(hiddenDimension: Int) {
+        self.layer1 = Linear(175, hiddenDimension)
+        self.layer2 = Linear(hiddenDimension, hiddenDimension)
+        self.layer3 = Linear(hiddenDimension, hiddenDimension)
+        self.policyHead = Linear(hiddenDimension, 153)
+        self.valueHead = Linear(hiddenDimension, 1)
+    }
 
     public func callAsFunction(_ input: MLXArray) -> (policy: MLXArray, value: MLXArray) {
         let o1 = relu(layer1(input))
