@@ -5,7 +5,7 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
-public enum Direction: Int, CaseIterable {
+public enum Direction: Int, CaseIterable, Hashable {
     case nw = 0
     case n = 1
     case ne = 2
@@ -22,7 +22,7 @@ public enum Direction: Int, CaseIterable {
         case .ne: -1
         case .w: 0
         case .e: 0
-        case .sw: 0
+        case .sw: 1
         case .s: 1
         case .se: 1
         }
@@ -38,6 +38,27 @@ public enum Direction: Int, CaseIterable {
         case .sw: -1
         case .s: 0
         case .se: 1
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .nw:
+            "NW"
+        case .n:
+            "N"
+        case .ne:
+            "NE"
+        case .w:
+            "W"
+        case .e:
+            "E"
+        case .sw:
+            "SW"
+        case .s:
+            "S"
+        case .se:
+            "SE"
         }
     }
 }

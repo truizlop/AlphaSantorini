@@ -5,7 +5,7 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
-public struct Position: Equatable {
+public struct Position: Equatable, Hashable {
     public private(set) var row: Int
     public private(set) var column: Int
 

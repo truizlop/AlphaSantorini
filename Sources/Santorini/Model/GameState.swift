@@ -6,10 +6,10 @@
 //
 
 public struct GameState {
-    var board: Board
-    var turn: Player
-    var workers: [Worker]
-    var phase: Phase
+    public var board: Board
+    public var turn: Player
+    public var workers: [Worker]
+    public var phase: Phase
 
     public init() {
         self.init(
@@ -62,16 +62,28 @@ public struct GameState {
             newWorker.move(direction: move.moveDirection)
             let buildPosition = newWorker.position.move(direction: move.buildDirection)
             board.build(at: buildPosition)
-            turn = turn.other
             return newWorker
         }
+        turn = turn.other
     }
 
-    public var isOver: Player? {
+    public var isOver: Bool {
+        winner != nil
+    }
+
+    public var winner: Player? {
         guard phase == .play else { return nil }
-        return workers.first { worker in
-            board[worker.position] == .dome
-        }?.player
+        if let worker = workers.first(where: { worker in board[worker.position] == .height3 }) {
+            return worker.player
+        }
+        if legalActions.isEmpty {
+            return turn.other
+        }
+        return nil
+    }
+
+    public var legalActions: [Action] {
+        legalPlacements.map(Action.placement) + legalMoves.map(Action.move)
     }
 
     public var legalPlacements: [Placement] {
@@ -141,6 +153,38 @@ public struct GameState {
             }
 
             return allowedMoves
+        }
+    }
+
+    public func show() {
+        for row in 0 ..< board.board.count {
+            print("")
+            let workersInRow = workers
+                .filter { $0.position.row == row }
+            for col in 0 ..< board.board[row].count {
+                if let worker = workersInRow.first(where: { $0.position.column == col }) {
+                    let letter = switch worker.id {
+                    case .one: worker.player == .one ? "A" : "a"
+                    case .two: worker.player == .one ? "B" : "b"
+                    }
+                    print("\(letter) ", terminator: "")
+                } else {
+                    print("  ", terminator: "")
+                }
+            }
+            print("")
+
+            for col in 0 ..< board.board[row].count {
+                let building = board.board[row][col]
+                let buildingStr = switch building {
+                    case .height0: "0"
+                    case .height1: "1"
+                    case .height2: "2"
+                    case .height3: "3"
+                    case .dome: "4"
+                }
+                print("\(buildingStr) ", terminator: "")
+            }
         }
     }
 }
