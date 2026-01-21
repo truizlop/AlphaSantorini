@@ -11,6 +11,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.0.0"),
+        .package(path: "Packages/SantoriniCore"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -22,8 +23,6 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
-        .target(name: "Santorini"),
-        .target(name: "MCTS"),
         .target(
             name: "NeuralNetwork",
             dependencies: [
@@ -34,8 +33,8 @@ let package = Package(
         .target(
             name: "Training",
             dependencies: [
-                "Santorini",
-                "MCTS",
+                .product(name: "Santorini", package: "SantoriniCore"),
+                .product(name: "MCTS", package: "SantoriniCore"),
                 "NeuralNetwork",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),

@@ -110,6 +110,22 @@ public struct GameState {
     public var legalMoves: [Move] {
         guard phase == .play else { return [] }
 
+        func isOccupiedAfterMove(
+            position: Position,
+            movingWorker: Worker,
+            destination: Position
+        ) -> Bool {
+            if position == destination {
+                return true
+            }
+            return workers.contains { worker in
+                if worker.player == movingWorker.player && worker.id == movingWorker.id {
+                    return false
+                }
+                return worker.position == position
+            }
+        }
+
         return workers.flatMap { worker -> [Move] in
             guard worker.player == turn else { return [] }
 
@@ -133,7 +149,12 @@ public struct GameState {
                 let allowedBuildDirections = Direction.allCases.compactMap { buildDirection in
                     if targetPosition.canMove(direction: buildDirection) {
                         let targetBuild = targetPosition.move(direction: buildDirection)
-                        if board[targetBuild] != .dome && !isWorkerOn(position: targetBuild) {
+                        if board[targetBuild] != .dome &&
+                            !isOccupiedAfterMove(
+                                position: targetBuild,
+                                movingWorker: worker,
+                                destination: targetPosition
+                            ) {
                             return buildDirection
                         } else {
                             return nil

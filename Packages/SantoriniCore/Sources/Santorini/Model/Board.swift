@@ -27,6 +27,10 @@ public struct Board {
         }
     }
 
+    public func building(at position: Position) -> Building {
+        self[position]
+    }
+
     mutating func build(at position: Position) {
         let building = self[position]
         self[position] = building.next
