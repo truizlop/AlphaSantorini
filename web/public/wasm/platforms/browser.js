@@ -1,0 +1,116 @@
+// @ts-check
+import { MODULE_PATH , MEMORY_TYPE } from "../instantiate.js"
+// @ts-ignore
+import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
+
+export async function defaultBrowserThreadSetup() {
+    const threadChannel = {
+        spawnThread: () => {
+            throw new Error("Cannot spawn a new thread from a worker thread")
+        },
+        postMessageToMainThread: (message, transfer) => {
+            // @ts-ignore
+            self.postMessage(message, transfer);
+        },
+        listenMessageFromMainThread: (listener) => {
+            // @ts-ignore
+            self.onmessage = (event) => listener(event.data);
+        }
+    }
+
+    const wasi = new WASI(/* args */[MODULE_PATH], /* env */[], /* fd */[
+        new OpenFile(new File([])), // stdin
+        ConsoleStdout.lineBuffered((stdout) => {
+            console.log(stdout);
+        }),
+        ConsoleStdout.lineBuffered((stderr) => {
+            console.error(stderr);
+        }),
+        new PreopenDirectory("/", new Map()),
+    ], { debug: false })
+    return {
+        wasi: Object.assign(wasi, {
+            setInstance(instance) {
+                wasi.inst = instance;
+            }
+        }),
+        threadChannel,
+    }
+}
+
+/** @type {import('./browser.d.ts').createDefaultWorkerFactory} */
+export function createDefaultWorkerFactory(preludeScript) {
+    return (tid, startArg, module, memory) => {
+        const worker = new Worker(new URL("./browser.worker.js", import.meta.url), {
+            type: "module",
+        });
+        worker.addEventListener("messageerror", (error) => {
+            console.error(`Worker thread ${tid} error:`, error);
+            throw error;
+        });
+        worker.postMessage({ module, memory, tid, startArg, preludeScript });
+        return worker;
+    }
+}
+
+class DefaultBrowserThreadRegistry {
+    workers = new Map();
+    nextTid = 1;
+
+    constructor(createWorker) {
+        this.createWorker = createWorker;
+    }
+
+    spawnThread(module, memory, startArg) {
+        const tid = this.nextTid++;
+        this.workers.set(tid, this.createWorker(tid, startArg, module, memory));
+        return tid;
+    }
+
+    listenMessageFromWorkerThread(tid, listener) {
+        const worker = this.workers.get(tid);
+        worker?.addEventListener("message", (event) => {
+            listener(event.data);
+        });
+    }
+
+    postMessageToWorkerThread(tid, message, transfer) {
+        const worker = this.workers.get(tid);
+        worker?.postMessage(message, transfer);
+    }
+
+    terminateWorkerThread(tid) {
+        const worker = this.workers.get(tid);
+        worker.terminate();
+        this.workers.delete(tid);
+    }
+}
+
+/** @type {import('./browser.d.ts').defaultBrowserSetup} */
+export async function defaultBrowserSetup(options) {
+    const args = options.args ?? []
+    const onStdoutLine = options.onStdoutLine ?? ((line) => console.log(line))
+    const onStderrLine = options.onStderrLine ?? ((line) => console.error(line))
+    const wasi = new WASI(/* args */[MODULE_PATH, ...args], /* env */[], /* fd */[
+        new OpenFile(new File([])), // stdin
+        ConsoleStdout.lineBuffered((stdout) => {
+            onStdoutLine(stdout);
+        }),
+        ConsoleStdout.lineBuffered((stderr) => {
+            onStderrLine(stderr);
+        }),
+        new PreopenDirectory("/", new Map()),
+    ], { debug: false })
+    const memory = new WebAssembly.Memory(MEMORY_TYPE);
+    const threadChannel = new DefaultBrowserThreadRegistry(options.spawnWorker || createDefaultWorkerFactory())
+
+    return {
+        module: options.module,
+        wasi: Object.assign(wasi, {
+            setInstance(instance) {
+                wasi.inst = instance;
+            }
+        }),
+        memory, threadChannel,
+    }
+}

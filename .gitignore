@@ -12,6 +12,11 @@ DerivedData/
 # macOS
 .DS_Store
 
+# Web
+web/node_modules/
+web/dist/
+web/.vite/
+
 # Logs
 *.log
 .swiftpm/xcode/xcuserdata/tomasruizlopez.xcuserdatad/xcschemes/xcschememanagement.plist

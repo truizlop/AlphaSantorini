@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Santorini — Play the Gods</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Nunito:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <script type="importmap">
+      {
+        "imports": {
+          "@bjorn3/browser_wasi_shim": "https://esm.sh/@bjorn3/browser_wasi_shim@0.3.0"
+        }
+      }
+    </script>
+    <div id="app">
+      <div id="scene">
+        <div id="game-over" class="game-over" role="status" aria-live="polite">
+          <div class="game-over-card">
+            <div class="game-over-title">Game Over</div>
+            <div id="game-over-winner" class="game-over-winner">Winner</div>
+            <div id="game-over-subtitle" class="game-over-subtitle"></div>
+            <button id="game-over-restart" class="game-over-button">Play Again</button>
+          </div>
+        </div>
+      </div>
+      <aside id="hud">
+        <div class="panel title">
+          <div class="crest">Santorini</div>
+          <div class="subtitle">Climb, build, and outwit the gods.</div>
+        </div>
+        <div class="panel status">
+          <div class="status-row">
+            <span class="label">Phase</span>
+            <span id="phase">--</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Turn</span>
+            <span id="turn">--</span>
+          </div>
+          <div class="status-row">
+            <span class="label">Status</span>
+            <span id="status">Loading...</span>
+          </div>
+          <div id="ai-status" class="ai-status">AI ready</div>
+        </div>
+        <div class="panel controls">
+          <label for="difficulty">AI Difficulty</label>
+          <select id="difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+            <option value="extreme">Extreme</option>
+          </select>
+          <button id="new-game">New Game</button>
+        </div>
+        <div class="panel hints">
+          <div class="hint">Placement: click any empty tile to place a worker.</div>
+          <div class="hint">Play: select a worker, pick a move, then choose a build.</div>
+          <div class="hint">Win by stepping onto a level 3 tower.</div>
+          <div class="hint">Drag on the board to rotate the view.</div>
+        </div>
+      </aside>
+    </div>
+    <script type="module" src="/wasm-loader.js"></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
