@@ -9,7 +9,7 @@ import Foundation
 import MLX
 import MLXNN
 
-// Input: 175 values (one-hot encoding of 25 positions for 5 building levels, current player positions and other player positions)
+// Input: 200 values (one-hot encoding of 25 positions for 5 building levels, current player worker positions, other player workers)
 // Hidden layers: 3 Linear layers with 256 neurons, ReLU
 // Output: policy head (153 logits = 25 for worker placements + 128 for worker-move-build directions)
 //         value head (tanh value -1...1 expected for outcome)
