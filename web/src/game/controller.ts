@@ -116,27 +116,6 @@ export class GameController {
       return;
     }
 
-    if (await this.selectWorkerAt(row, col)) {
-      return;
-    }
-
-    const moveOption = this.moveOptions.find(
-      (option) =>
-        option.workerId === this.selectedWorker &&
-        option.moveRow === row &&
-        option.moveCol === col
-    );
-    if (moveOption) {
-      const moveKey = tileKey(row, col);
-      if (this.isWinningMove(moveOption)) {
-        this.applyAction(moveOption.actionId);
-        return;
-      }
-      this.selectedMoveKey = moveKey === this.selectedMoveKey ? null : moveKey;
-      await this.refreshHighlights();
-      return;
-    }
-
     const buildOption = this.moveOptions.find(
       (option) =>
         option.workerId === this.selectedWorker &&
