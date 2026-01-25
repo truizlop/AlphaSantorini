@@ -8,7 +8,7 @@ const TILE_TOP_HEIGHT = 0.06;
 const TILE_TOP = TILE_BASE_HEIGHT + TILE_TOP_HEIGHT;
 const LEVEL_HEIGHT = 0.22;
 const LEVEL_SIZES = [0.9, 0.76, 0.62];
-const LEVEL_COLORS = [0xf7f5ef, 0xf1eee6, 0xeae4d8];
+const LEVEL_COLORS = [0xf3f7fb, 0xe3ecf6, 0xd4e1ef];
 
 export type HighlightType = "placement" | "move" | "build";
 
@@ -34,15 +34,19 @@ export class BoardScene {
   private dragLast = new THREE.Vector2();
   private dragMoved = false;
   private rotationTarget = 0;
+  private zoomDistance = 0;
+  private zoomDirection = new THREE.Vector3();
 
   constructor(container: HTMLElement, onTileClick: (row: number, col: number) => void) {
     this.container = container;
     this.onTileClick = onTileClick;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0xd7eef4, 5, 18);
+    this.scene.fog = new THREE.Fog(0x0b121c, 5, 18);
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
     this.camera.position.set(4.2, 5.2, 6.6);
     this.camera.lookAt(0, 0, 0);
+    this.zoomDistance = this.camera.position.length();
+    this.zoomDirection.copy(this.camera.position).normalize();
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -50,7 +54,8 @@ export class BoardScene {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.setClearColor(0x0b121c, 0);
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -81,22 +86,30 @@ export class BoardScene {
   }
 
   private buildBoard(): void {
-    const tileTopGeo = new THREE.BoxGeometry(0.9, TILE_TOP_HEIGHT, 0.9);
+    const tileTopGeo = new THREE.BoxGeometry(0.92, TILE_TOP_HEIGHT, 0.92);
     const tileBaseGeo = new THREE.BoxGeometry(0.98, TILE_BASE_HEIGHT, 0.98);
-    const topColor = new THREE.Color(0xf8f4ea);
+    const topColor = new THREE.Color(0x1d3550);
     const tileBaseMat = new THREE.MeshStandardMaterial({
-      color: 0xe7dcc8,
-      roughness: 0.9,
-      metalness: 0.05,
+      color: 0x091321,
+      roughness: 0.95,
+      metalness: 0.1,
+    });
+    const edgeGeo = new THREE.EdgesGeometry(tileTopGeo);
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0x45d1e5,
+      transparent: true,
+      opacity: 0.7,
     });
 
     for (let row = 0; row < BOARD_SIZE; row += 1) {
       for (let col = 0; col < BOARD_SIZE; col += 1) {
-        const jitter = ((row * 7 + col * 11) % 5 - 2) * 0.008;
+        const jitter = ((row * 7 + col * 11) % 5 - 2) * 0.012;
         const mat = new THREE.MeshStandardMaterial({
-          color: topColor.clone().offsetHSL(0, -0.04, jitter),
-          roughness: 0.85,
-          metalness: 0.05,
+          color: topColor.clone().offsetHSL(0, 0.02, jitter),
+          roughness: 0.6,
+          metalness: 0.25,
+          emissive: new THREE.Color(0x0b1b2a),
+          emissiveIntensity: 0.4,
         });
         const tileGroup = new THREE.Group();
         const tileBase = new THREE.Mesh(tileBaseGeo, tileBaseMat);
@@ -108,44 +121,38 @@ export class BoardScene {
         tileTop.castShadow = false;
         tileTop.receiveShadow = true;
         tileTop.userData = { row, col, baseColor: mat.color.clone() };
+        const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+        edges.position.y = tileTop.position.y;
         tileGroup.add(tileBase);
         tileGroup.add(tileTop);
+        tileGroup.add(edges);
         tileGroup.position.set((col - 2) * TILE_SIZE, 0, (row - 2) * TILE_SIZE);
         this.tileMeshes.push(tileTop);
         this.boardGroup.add(tileGroup);
       }
     }
 
-    const waterGeo = new THREE.BoxGeometry(5.2, 0.04, 5.2);
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x8ac6d7,
-      roughness: 0.6,
-      metalness: 0.1,
-    });
-    const water = new THREE.Mesh(waterGeo, waterMat);
-    water.position.y = -0.025;
-    water.receiveShadow = true;
-    this.boardGroup.add(water);
-
-    const frameGeo = new THREE.BoxGeometry(5.9, 0.12, 5.9);
+    const frameGeo = new THREE.BoxGeometry(5.9, 0.14, 5.9);
     const frameMat = new THREE.MeshStandardMaterial({
-      color: 0xf0d9b8,
-      roughness: 0.9,
-      metalness: 0.05,
+      color: 0x132339,
+      roughness: 0.7,
+      metalness: 0.25,
+      emissive: new THREE.Color(0x10314a),
+      emissiveIntensity: 0.45,
     });
     const frame = new THREE.Mesh(frameGeo, frameMat);
-    frame.position.y = -0.1;
+    frame.position.y = -0.08;
     frame.receiveShadow = true;
     this.boardGroup.add(frame);
 
-    const baseGeo = new THREE.BoxGeometry(6.4, 0.6, 6.4);
+    const baseGeo = new THREE.BoxGeometry(6.4, 0.7, 6.4);
     const boardBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x6bb2c2,
-      roughness: 0.6,
+      color: 0x0a111b,
+      roughness: 0.9,
       metalness: 0.1,
     });
     const base = new THREE.Mesh(baseGeo, boardBaseMat);
-    base.position.y = -0.46;
+    base.position.y = -0.5;
     base.receiveShadow = true;
     this.boardGroup.add(base);
   }
@@ -186,11 +193,11 @@ export class BoardScene {
   }
 
   private applyHighlights(): void {
-    const defaultBase = new THREE.Color(0xf8f4ea);
-    const placement = new THREE.Color(0x9ad8b0);
-    const move = new THREE.Color(0x8dd1dc);
-    const build = new THREE.Color(0xf6b26b);
-    const hover = new THREE.Color(0xfff1c2);
+    const defaultBase = new THREE.Color(0x162639);
+    const placement = new THREE.Color(0x3fdca0);
+    const move = new THREE.Color(0x45d1e5);
+    const build = new THREE.Color(0xf2c14f);
+    const hover = new THREE.Color(0x8fe5ff);
 
     for (const tile of this.tileMeshes) {
       const mat = tile.material as THREE.MeshStandardMaterial;
@@ -215,6 +222,7 @@ export class BoardScene {
     this.container.addEventListener("pointermove", (event) => this.handlePointerMove(event));
     this.container.addEventListener("pointerup", (event) => this.handlePointerUp(event));
     this.container.addEventListener("pointercancel", (event) => this.handlePointerUp(event));
+    this.container.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
     window.addEventListener("resize", () => this.handleResize());
   }
 
@@ -307,12 +315,26 @@ export class BoardScene {
     this.renderer.setSize(clientWidth, clientHeight);
   }
 
+  private handleWheel(event: WheelEvent): void {
+    event.preventDefault();
+    const zoomSpeed = 0.0025;
+    const minDistance = 5.5;
+    const maxDistance = 12.5;
+    this.zoomDistance = THREE.MathUtils.clamp(
+      this.zoomDistance + event.deltaY * zoomSpeed,
+      minDistance,
+      maxDistance
+    );
+    this.camera.position.copy(this.zoomDirection).multiplyScalar(this.zoomDistance);
+    this.camera.lookAt(0, 0, 0);
+  }
+
   private addLights(): void {
-    const hemi = new THREE.HemisphereLight(0xfdf7ed, 0x7fb8c9, 0.8);
+    const hemi = new THREE.HemisphereLight(0x1c2a3f, 0x0a111b, 0.75);
     this.scene.add(hemi);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 0.95);
-    dir.position.set(6, 8, 4);
+    const dir = new THREE.DirectionalLight(0xd8e9ff, 0.9);
+    dir.position.set(6, 8, 5);
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
     dir.shadow.bias = -0.00025;
@@ -324,9 +346,13 @@ export class BoardScene {
     dir.shadow.camera.far = 20;
     this.scene.add(dir);
 
-    const fill = new THREE.DirectionalLight(0xbfdbe6, 0.35);
+    const fill = new THREE.DirectionalLight(0x2aa9c4, 0.4);
     fill.position.set(-6, 4, -5);
     this.scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xf2c14f, 0.25);
+    rim.position.set(-2, 6, 6);
+    this.scene.add(rim);
   }
 
   private animate(): void {
@@ -459,11 +485,21 @@ export class BoardScene {
     const bodyGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.38, 16);
     const headGeo = new THREE.SphereGeometry(0.16, 16, 12);
 
-    const color = worker.player === "one" ? 0x2c8f8f : 0xe07a3a;
-    const accent = worker.id === "one" ? 0xffffff : 0x2a2c2f;
+    const color = worker.player === "one" ? 0x45d1e5 : 0xf2c14f;
+    const accent = worker.id === "one" ? 0xf3f7fb : 0x0c1521;
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color });
-    const headMat = new THREE.MeshStandardMaterial({ color: accent });
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.35,
+      metalness: 0.2,
+      emissive: new THREE.Color(color).multiplyScalar(0.25),
+      emissiveIntensity: 0.6,
+    });
+    const headMat = new THREE.MeshStandardMaterial({
+      color: accent,
+      roughness: 0.4,
+      metalness: 0.1,
+    });
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -485,11 +521,11 @@ export class BoardScene {
 
   private addSelectionRing(group: THREE.Group, player: "one" | "two"): void {
     const ringGeo = new THREE.TorusGeometry(0.33, 0.045, 12, 24);
-    const ringColor = player === "one" ? 0x5ed7cb : 0xf2a564;
+    const ringColor = player === "one" ? 0x45d1e5 : 0xf2c14f;
     const ringMat = new THREE.MeshStandardMaterial({
       color: ringColor,
       emissive: ringColor,
-      emissiveIntensity: 0.6,
+      emissiveIntensity: 0.8,
       transparent: true,
       opacity: 0.85,
       roughness: 0.4,
@@ -509,13 +545,17 @@ export class BoardScene {
     const ledgeGeo = new THREE.BoxGeometry(ledgeSize, 0.04, ledgeSize);
     const bodyMat = new THREE.MeshStandardMaterial({
       color: LEVEL_COLORS[Math.min(level, LEVEL_COLORS.length - 1)],
-      roughness: 0.82,
-      metalness: 0.04,
+      roughness: 0.65,
+      metalness: 0.08,
+      emissive: new THREE.Color(0x1a2c3f),
+      emissiveIntensity: 0.15,
     });
     const ledgeMat = new THREE.MeshStandardMaterial({
-      color: 0xe4d8c6,
-      roughness: 0.88,
-      metalness: 0.05,
+      color: 0xcfdbe8,
+      roughness: 0.7,
+      metalness: 0.06,
+      emissive: new THREE.Color(0x122131),
+      emissiveIntensity: 0.12,
     });
 
     const group = new THREE.Group();
@@ -545,16 +585,20 @@ export class BoardScene {
     );
     const baseGeo = new THREE.CylinderGeometry(domeRadius * 0.92, domeRadius, baseHeight, 24);
     const domeMat = new THREE.MeshPhysicalMaterial({
-      color: 0x6fbad0,
-      roughness: 0.25,
-      metalness: 0.05,
-      clearcoat: 0.6,
-      clearcoatRoughness: 0.35,
+      color: 0x3fd0f2,
+      roughness: 0.18,
+      metalness: 0.1,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.2,
+      emissive: new THREE.Color(0x1b6f8a),
+      emissiveIntensity: 0.45,
     });
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x5faec4,
-      roughness: 0.4,
-      metalness: 0.1,
+      color: 0x1f3b55,
+      roughness: 0.5,
+      metalness: 0.2,
+      emissive: new THREE.Color(0x0e2335),
+      emissiveIntensity: 0.3,
     });
 
     const group = new THREE.Group();
