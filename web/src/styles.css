@@ -336,6 +336,25 @@ button:hover {
   box-shadow: 0 16px 30px rgba(9, 14, 22, 0.65), 0 0 22px rgba(242, 193, 79, 0.35);
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.button-secondary {
+  margin-top: 10px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(69, 209, 229, 0.6);
+  box-shadow: 0 10px 20px rgba(9, 14, 22, 0.4);
+}
+
+.button-secondary:hover {
+  box-shadow: 0 14px 24px rgba(9, 14, 22, 0.5), 0 0 18px rgba(69, 209, 229, 0.3);
+}
+
 .hints .hint {
   font-size: 13px;
   color: var(--muted);

@@ -31,6 +31,7 @@ export class GameController {
   private statusEl: HTMLElement;
   private aiStatusEl: HTMLElement;
   private difficultyInput: HTMLSelectElement;
+  private cancelMoveButton: HTMLButtonElement;
   private gameOverEl: HTMLElement;
   private gameOverWinnerEl: HTMLElement;
   private gameOverSubtitleEl: HTMLElement;
@@ -43,6 +44,7 @@ export class GameController {
     this.statusEl = document.getElementById("status")!;
     this.aiStatusEl = document.getElementById("ai-status")!;
     this.difficultyInput = document.getElementById("difficulty") as HTMLSelectElement;
+    this.cancelMoveButton = document.getElementById("cancel-move") as HTMLButtonElement;
     this.gameOverEl = document.getElementById("game-over")!;
     this.gameOverWinnerEl = document.getElementById("game-over-winner")!;
     this.gameOverSubtitleEl = document.getElementById("game-over-subtitle")!;
@@ -51,6 +53,7 @@ export class GameController {
     const newGameButton = document.getElementById("new-game")!;
     newGameButton.addEventListener("click", () => this.newGame());
     this.gameOverButton.addEventListener("click", () => this.newGame());
+    this.cancelMoveButton.addEventListener("click", () => void this.cancelMoveSelection());
     const swallowPointer = (event: Event) => event.stopPropagation();
     ["pointerdown", "pointermove", "pointerup", "click"].forEach((type) => {
       this.gameOverEl.addEventListener(type, swallowPointer);
@@ -66,6 +69,7 @@ export class GameController {
     this.selectedMoveKey = null;
     this.setAiReadyStatus();
     this.hideGameOver();
+    this.updateCancelState();
     await this.refresh();
   }
 
@@ -228,6 +232,7 @@ export class GameController {
     } else {
       this.statusEl.textContent = "Choose where to build.";
     }
+    this.updateCancelState();
   }
 
   private rebuildLegalMaps(): void {
@@ -316,6 +321,27 @@ export class GameController {
   private setAiReadyStatus(): void {
     this.aiStatusEl.textContent = isModelReady() ? "AI ready" : "Random AI";
     this.aiStatusEl.classList.remove("thinking");
+    this.updateCancelState();
+  }
+
+  private async cancelMoveSelection(): Promise<void> {
+    if (!this.selectedMoveKey) {
+      return;
+    }
+    this.selectedMoveKey = null;
+    await this.refreshHighlights();
+    this.updateStatus();
+  }
+
+  private updateCancelState(): void {
+    const canCancel =
+      !!this.summary &&
+      this.summary.turn === this.humanPlayer &&
+      this.summary.phase === "play" &&
+      !this.aiThinking &&
+      !wasm().isTerminal(this.stateHandle) &&
+      !!this.selectedMoveKey;
+    this.cancelMoveButton.disabled = !canCancel;
   }
 
   private async selectWorkerAt(row: number, col: number): Promise<boolean> {
