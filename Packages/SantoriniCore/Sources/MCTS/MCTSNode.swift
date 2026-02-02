@@ -12,6 +12,7 @@ public class MCTSNode<State: GameState> {
     let move: State.Move?
     weak var parent: MCTSNode<State>?
     var children: [MCTSNode<State>] = []
+    private lazy var cachedLegalMoves: [State.Move] = state.legalMoves()
 
     var visits: Int = 0
     var totalValue: Float = 0
@@ -57,11 +58,12 @@ public class MCTSNode<State: GameState> {
         }
         let (policy, value) = evaluator.evaluate(state: state)
 
-        let legalMoves = state.legalMoves()
+        let legalMoves = cachedLegalMoves
         guard !legalMoves.isEmpty else { return value }
 
         let rawPriors = legalMoves.map { move -> Float in
-            let raw = policy[move] ?? 0
+            let encoding = move.encoded()
+            let raw = encoding < policy.count ? policy[encoding] : 0
             return raw.isFinite ? max(0, raw) : 0
         }
         let priorSum = rawPriors.reduce(0, +)

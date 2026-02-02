@@ -8,6 +8,8 @@
 import Santorini
 import MCTS
 
+extension Santorini.Action: ActionEncodable {}
+
 extension Santorini.GameState: MCTS.GameState {
     public typealias Move = Action
 

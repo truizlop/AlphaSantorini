@@ -8,5 +8,7 @@
 public protocol PolicyValueNetwork {
     associatedtype State: GameState
 
-    func evaluate(state: State) -> (policy: [State.Move: Float], value: Float)
+    /// Returns a flat policy array indexed by move encoding.
+    /// The array length must match the action encoding size for the game.
+    func evaluate(state: State) -> (policy: [Float], value: Float)
 }

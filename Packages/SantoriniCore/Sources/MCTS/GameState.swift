@@ -5,8 +5,12 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
+public protocol ActionEncodable {
+    func encoded() -> Int
+}
+
 public protocol GameState {
-    associatedtype Move: Hashable
+    associatedtype Move: Hashable & ActionEncodable
 
     var isTerminal: Bool { get }
     // Only valid if isTerminal == true
