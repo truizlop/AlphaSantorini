@@ -5,6 +5,7 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
+import Foundation
 import MLX
 import MLXNN
 import MLXOptimizers
@@ -72,11 +73,11 @@ public class SantoriniTrainer {
 
     private func selfPlayPhase() async {
         print("Beginning self-play...")
-        let model = self.model
         let iterations = self.config.MCTSSimulations
         let selfPlay = self.selfPlay
         let noise = self.config.noise
 
+        let start = Date().timeIntervalSince1970
         for game in 1 ... self.config.gamesPerIteration {
             let samples = selfPlay.run(
                 evaluator: model,
@@ -88,6 +89,8 @@ public class SantoriniTrainer {
                 print("Completed self-play \(game)/\(config.gamesPerIteration)")
             }
         }
+        let end = Date().timeIntervalSince1970
+        print("Self play took: \(end-start)")
 
         totalGamesPlayed += config.gamesPerIteration
         print("Self-play ended (\(replayBuffer.count) training samples).")
@@ -115,22 +118,24 @@ public class SantoriniTrainer {
             let targetValues = MLXArray(encodedValues, [batch.count, 1])
             let targets = concatenated([targetPolicies, targetValues], axis: 1)
 
+            var stepPolicyLoss: MLXArray?
+            var stepValueLoss: MLXArray?
             let (loss, grad) = valueAndGrad(model: model) { net, input, targets in
                 let (policy, value) = net(input)
                 let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
                 let policyLoss = self.policyLoss(predicted: policy, target: splits[0])
                 let valueLoss = self.valueLoss(predicted: value, target: splits[1])
+                stepPolicyLoss = policyLoss
+                stepValueLoss = valueLoss
                 return policyLoss + valueLoss
             }(model, states, targets)
 
             if step % 50 == 0 || step == config.trainingStepsPerIteration {
-                let (pLoss, vLoss) = computeLosses(
-                    states: states,
-                    targetPolicies: targetPolicies,
-                    targetValues: targetValues
-                )
-                totalPolicyLoss = pLoss
-                totalValueLoss = vLoss
+                if let stepPolicyLoss, let stepValueLoss {
+                    eval(stepPolicyLoss, stepValueLoss)
+                    totalPolicyLoss = stepPolicyLoss.item(Float.self)
+                    totalValueLoss = stepValueLoss.item(Float.self)
+                }
             }
 
             optimizer.update(model: model, gradients: grad)
@@ -154,18 +159,6 @@ public class SantoriniTrainer {
         target: MLXArray
     ) -> MLXArray {
         mseLoss(predictions: predicted, targets: target, reduction: .mean)
-    }
-
-    private func computeLosses(
-        states: MLXArray,
-        targetPolicies: MLXArray,
-        targetValues: MLXArray
-    ) -> (policyLoss: Float, valueLoss: Float) {
-        let (predictedPolicy, predictedValue) = model(states)
-        let policyLoss = policyLoss(predicted: predictedPolicy, target: targetPolicies)
-        let valueLoss = valueLoss(predicted: predictedValue, target: targetValues)
-        eval(policyLoss, valueLoss)
-        return (policyLoss.item(Float.self), valueLoss.item(Float.self))
     }
 
     private func evaluationPhase(iteration: Int) {
