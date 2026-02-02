@@ -21,7 +21,18 @@ class ReplayBuffer {
     }
 
     func sample(batchSize: Int) -> [TrainingSample] {
-        Array(samples.shuffled().prefix(batchSize))
+        let total = samples.count
+        guard total > 0 else { return [] }
+        let actual = min(batchSize, total)
+        if actual == total {
+            return samples.shuffled()
+        }
+        var indices = Set<Int>()
+        indices.reserveCapacity(actual)
+        while indices.count < actual {
+            indices.insert(Int.random(in: 0 ..< total))
+        }
+        return indices.map { samples[$0] }
     }
 
     var count: Int {
@@ -30,7 +41,7 @@ class ReplayBuffer {
 
     func checkDiversity() {
         guard samples.count > 0 else { return }
-        let hashes = samples.map { $0.state.encoded().description.hashValue }
+        let hashes = samples.map(\.stateHash)
         let unique = Set(hashes).count
 
         print("Diversity: \(String(format: "%.1f", Float(unique) / Float(samples.count)))")

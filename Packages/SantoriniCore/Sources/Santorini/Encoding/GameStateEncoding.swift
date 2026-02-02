@@ -7,40 +7,48 @@
 
 extension GameState {
     public func encoded() -> [Float] {
-        let level0 = board.level(building: .height0)
-        let level1 = board.level(building: .height1)
-        let level2 = board.level(building: .height2)
-        let level3 = board.level(building: .height3)
-        let domes = board.level(building: .dome)
+        var encoded = Array<Float>(repeating: 0.0, count: 200)
+        var workerFlags = Array<Int>(repeating: 0, count: 25)
 
-        // One-hot encoding for player's workers
-        var currentPlayerWorker1 = Array<Float>(repeating: 0.0, count: 25)
-        var currentPlayerWorker2 = Array<Float>(repeating: 0.0, count: 25)
-        var otherPlayerWorkers = Array<Float>(repeating: 0.0, count: 25)
-        workers.forEach { worker in
+        for worker in workers {
             let index = worker.position.row * 5 + worker.position.column
             if worker.player == turn {
-                if worker.id == .one {
-                    currentPlayerWorker1[index] = 1.0
-                } else {
-                    currentPlayerWorker2[index] = 1.0
-                }
+                workerFlags[index] = worker.id == .one ? 1 : 2
             } else {
-                otherPlayerWorkers[index] = 1.0
+                workerFlags[index] = 3
             }
         }
 
-        return level0 + level1 + level2 + level3 + domes + currentPlayerWorker1 + currentPlayerWorker2 + otherPlayerWorkers
-    }
-}
+        for row in 0 ..< 5 {
+            for column in 0 ..< 5 {
+                let index = row * 5 + column
+                let building = board.board[row][column]
+                switch building {
+                case .height0:
+                    encoded[index] = 1.0
+                case .height1:
+                    encoded[25 + index] = 1.0
+                case .height2:
+                    encoded[50 + index] = 1.0
+                case .height3:
+                    encoded[75 + index] = 1.0
+                case .dome:
+                    encoded[100 + index] = 1.0
+                }
 
-extension Board {
-    // One hot encoding of the items at a given level
-    fileprivate func level(building: Building) -> [Float] {
-        board.flatMap { row in
-            row.map { item in
-                (item == building) ? 1.0 : 0.0
+                switch workerFlags[index] {
+                case 1:
+                    encoded[125 + index] = 1.0
+                case 2:
+                    encoded[150 + index] = 1.0
+                case 3:
+                    encoded[175 + index] = 1.0
+                default:
+                    break
+                }
             }
         }
+
+        return encoded
     }
 }
