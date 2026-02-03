@@ -1,4 +1,4 @@
-.PHONY: help build wasm onnx onnx-verify web-install web-build web-dev clean
+.PHONY: help build run-release wasm onnx onnx-verify web-install web-build web-dev clean
 
 SWIFT ?= swift
 TOOLCHAINS ?=
@@ -15,6 +15,7 @@ SWIFT_CMD = $(if $(TOOLCHAINS),env TOOLCHAINS=$(TOOLCHAINS) $(SWIFT),$(SWIFT))
 help:
 	@echo "Targets:"
 	@echo "  build        Build native Swift package"
+	@echo "  run-release  Build and run Release executable"
 	@echo "  wasm         Build SwiftWasm bundle (auto-detects WASM_SDK)"
 	@echo "  onnx         Export ONNX model (requires CHECKPOINT=...)" 
 	@echo "  onnx-verify  Verify ONNX model with onnxruntime-node"
@@ -28,6 +29,9 @@ help:
 
 build:
 	$(SWIFT_CMD) build
+
+run-release:
+	$(SWIFT_CMD) run -c release AlphaSantorini
 
 wasm:
 	@TOOLCHAINS_ENV="$(TOOLCHAINS)"; \
