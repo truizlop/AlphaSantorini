@@ -46,6 +46,70 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork>(
     return (bestMove(from: root, temperature: temperature), visitDistribution(from: root, temperature: temperature))
 }
 
+public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil,
+    batchSize: Int = 16
+) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
+    let root = MCTSNode(
+        state: rootState,
+        move: nil,
+        prior: 0
+    )
+    let (rootPolicies, rootValues) = MCTSProfiler.measureEvaluate {
+        evaluator.evaluate(states: [rootState])
+    }
+    _ = root.expand(with: rootPolicies[0], value: rootValues[0])
+
+    if let noise {
+        root.addDirichletNoise(noise)
+    }
+
+    var remaining = iterations
+    while remaining > 0 {
+        var leaves: [MCTSNode<State>] = []
+        leaves.reserveCapacity(batchSize)
+
+        var budget = min(batchSize, remaining)
+        while budget > 0 {
+            var node = root
+            while node.isExpanded && !node.state.isTerminal {
+                guard let best = node.bestChild(explorationConstant: explorationConstant) else { break }
+                node = best
+            }
+
+            if node.state.isTerminal {
+                node.backpropagate(value: node.state.terminalValue)
+            } else {
+                leaves.append(node)
+            }
+
+            budget -= 1
+            remaining -= 1
+        }
+
+        if leaves.isEmpty {
+            continue
+        }
+
+        let states = leaves.map(\.state)
+        let (policies, values) = MCTSProfiler.measureEvaluate {
+            evaluator.evaluate(states: states)
+        }
+
+        for (index, node) in leaves.enumerated() {
+            let value = node.expand(with: policies[index], value: values[index])
+            node.backpropagate(value: value)
+        }
+    }
+
+    return (bestMove(from: root, temperature: temperature), visitDistribution(from: root, temperature: temperature))
+}
+
 private func bestMove<State>(
     from node: MCTSNode<State>,
     temperature: Float

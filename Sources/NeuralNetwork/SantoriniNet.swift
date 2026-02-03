@@ -43,6 +43,34 @@ public class SantoriniNet: Module {
         return (policy.asArray(Float.self), value.asArray(Float.self)[0])
     }
 
+    public func evaluateBatch(_ inputs: [[Float]]) -> (policies: [[Float]], values: [Float]) {
+        guard let first = inputs.first else { return ([], []) }
+        let flat = inputs.flatMap { $0 }
+        let mlxInput = MLXArray(flat, [inputs.count, first.count])
+        let (policy, value) = self(mlxInput)
+
+        let policyFlat = policy.asArray(Float.self)
+        let valueFlat = value.asArray(Float.self)
+
+        let policySize = policyFlat.count / inputs.count
+        var policies: [[Float]] = []
+        policies.reserveCapacity(inputs.count)
+        var offset = 0
+        for _ in 0 ..< inputs.count {
+            policies.append(Array(policyFlat[offset ..< offset + policySize]))
+            offset += policySize
+        }
+
+        let values: [Float]
+        if valueFlat.count == inputs.count {
+            values = valueFlat
+        } else {
+            let strideSize = max(1, valueFlat.count / inputs.count)
+            values = stride(from: 0, to: valueFlat.count, by: strideSize).map { valueFlat[$0] }
+        }
+        return (policies, values)
+    }
+
     public func copyWeights(from other: SantoriniNet) {
         let sourceParams = other.parameters()
         self.update(parameters: sourceParams)

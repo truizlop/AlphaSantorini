@@ -10,6 +10,7 @@ import MLX
 import MLXNN
 import MLXOptimizers
 import NeuralNetwork
+import MCTS
 
 public class SantoriniTrainer {
     let config: TrainingConfig
@@ -74,15 +75,19 @@ public class SantoriniTrainer {
     private func selfPlayPhase() async {
         print("Beginning self-play...")
         let iterations = self.config.MCTSSimulations
+        let batchSize = self.config.mctsBatchSize
         let selfPlay = self.selfPlay
         let noise = self.config.noise
+        let profilingEnabled = ProcessInfo.processInfo.environment["SANTORINI_PROFILE"] == "1"
+        MCTSProfiler.enabled = profilingEnabled
 
         let start = Date().timeIntervalSince1970
         for game in 1 ... self.config.gamesPerIteration {
             let samples = selfPlay.run(
                 evaluator: model,
                 iterations: iterations,
-                noise: noise
+                noise: noise,
+                batchSize: batchSize
             )
             replayBuffer.add(samples)
             if game % 5 == 0 {
@@ -91,6 +96,9 @@ public class SantoriniTrainer {
         }
         let end = Date().timeIntervalSince1970
         print("Self play took: \(end-start)")
+        if profilingEnabled {
+            print(MCTSProfiler.reportAndReset(prefix: "Self-play MCTS"))
+        }
 
         totalGamesPlayed += config.gamesPerIteration
         print("Self-play ended (\(replayBuffer.count) training samples).")

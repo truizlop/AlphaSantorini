@@ -57,7 +57,11 @@ public class MCTSNode<State: GameState> {
             return state.terminalValue
         }
         let (policy, value) = evaluator.evaluate(state: state)
+        return expand(with: policy, value: value)
+    }
 
+    @discardableResult
+    func expand(with policy: [Float], value: Float) -> Float {
         let legalMoves = cachedLegalMoves
         guard !legalMoves.isEmpty else { return value }
 

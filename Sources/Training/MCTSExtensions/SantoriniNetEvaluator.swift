@@ -17,3 +17,10 @@ extension SantoriniNet: PolicyValueNetwork {
         return evaluate(input)
     }
 }
+
+extension SantoriniNet: BatchPolicyValueNetwork {
+    public func evaluate(states: [Santorini.GameState]) -> (policies: [[Float]], values: [Float]) {
+        let inputs = states.map { $0.encoded() }
+        return evaluateBatch(inputs)
+    }
+}

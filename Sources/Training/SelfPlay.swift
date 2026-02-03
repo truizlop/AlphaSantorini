@@ -17,19 +17,21 @@ public class SelfPlay: @unchecked Sendable {
     public func run(
         evaluator: SantoriniNet,
         iterations: Int,
-        noise: DirichletNoise?
+        noise: DirichletNoise?,
+        batchSize: Int
     ) -> [TrainingSample] {
         var state = GameState()
         var history: [(Santorini.GameState, Action, Policy)] = []
         var move = 0
 
         while !state.isOver {
-            let (bestAction, policy) = mcts(
+            let (bestAction, policy) = mctsBatched(
                 rootState: state,
                 evaluator: evaluator,
                 iterations: iterations,
                 temperature: temperature(for: move, isTraining: noise != nil),
                 noise: noise,
+                batchSize: batchSize
             )
 
             if let bestAction {
