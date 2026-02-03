@@ -13,7 +13,7 @@ public struct TrainingConfig {
     let hiddenDimension: Int = 256
     let gamesPerIteration: Int = 100
     let MCTSSimulations: Int = 200
-    let mctsBatchSize: Int = 16
+    let mctsBatchSize: Int = 256
     let noise: DirichletNoise = DirichletNoise(epsilon: 0.25, alpha: 0.3)
 
     // Training
