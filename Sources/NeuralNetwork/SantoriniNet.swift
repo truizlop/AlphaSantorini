@@ -32,7 +32,7 @@ public class SantoriniNet: Module {
         let o1 = relu(layer1(input))
         let o2 = relu(layer2(o1))
         let o3 = relu(layer3(o2))
-        let policy = softmax(policyHead(o3))
+        let policy = softmax(policyHead(o3), axis: -1)
         let value = tanh(valueHead(o3))
         return (policy: policy, value: value)
     }

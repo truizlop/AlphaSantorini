@@ -124,6 +124,8 @@ public class SantoriniTrainer {
         print("Beginning training...")
         var totalPolicyLoss: Float = 0.0
         var totalValueLoss: Float = 0.0
+        var lastPolicyLoss: Float = 0.0
+        var lastValueLoss: Float = 0.0
 
         for step in 1 ... config.trainingStepsPerIteration {
             let batch = replayBuffer.sample(batchSize: config.batchSize)
@@ -139,9 +141,13 @@ public class SantoriniTrainer {
 
             var stepPolicyLoss: MLXArray?
             var stepValueLoss: MLXArray?
+            var stepTargetPolicySum: MLXArray?
+            var stepPredPolicySum: MLXArray?
             let (_, grad) = valueAndGrad(model: model) { net, input, targets in
                 let (policy, value) = net(input)
                 let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
+                stepTargetPolicySum = splits[0].sum(axis: 1)
+                stepPredPolicySum = policy.sum(axis: 1)
                 let policyLoss = self.policyLoss(predicted: policy, target: splits[0])
                 let valueLoss = self.valueLoss(predicted: value, target: splits[1])
                 stepPolicyLoss = policyLoss
@@ -149,11 +155,24 @@ public class SantoriniTrainer {
                 return policyLoss + valueLoss
             }(model, states, targets)
 
-            if step % 50 == 0 || step == config.trainingStepsPerIteration {
-                if let stepPolicyLoss, let stepValueLoss {
-                    eval(stepPolicyLoss, stepValueLoss)
-                    totalPolicyLoss = stepPolicyLoss.item(Float.self)
-                    totalValueLoss = stepValueLoss.item(Float.self)
+            if let stepPolicyLoss, let stepValueLoss {
+                eval(stepPolicyLoss, stepValueLoss)
+                let policyLossValue = stepPolicyLoss.item(Float.self)
+                let valueLossValue = stepValueLoss.item(Float.self)
+                totalPolicyLoss += policyLossValue
+                totalValueLoss += valueLossValue
+                lastPolicyLoss = policyLossValue
+                lastValueLoss = valueLossValue
+            }
+
+            if step == 1 || step % 50 == 0 || step == config.trainingStepsPerIteration {
+                if let stepTargetPolicySum, let stepPredPolicySum {
+                    eval(stepTargetPolicySum, stepPredPolicySum)
+                    logPolicyNormalization(
+                        targetSums: stepTargetPolicySum,
+                        predictedSums: stepPredPolicySum,
+                        step: step
+                    )
                 }
             }
 
@@ -161,8 +180,16 @@ public class SantoriniTrainer {
             eval(model, optimizer)
         }
 
-        print("Training ended: policy_loss=\(String(format: "%.4f", totalPolicyLoss)), value_loss=\(String(format: "%.4f", totalValueLoss))")
-        trainingHistory.append((iteration, totalPolicyLoss, totalValueLoss))
+        let steps = Float(config.trainingStepsPerIteration)
+        let meanPolicyLoss = steps > 0 ? totalPolicyLoss / steps : 0
+        let meanValueLoss = steps > 0 ? totalValueLoss / steps : 0
+        print("""
+            Training ended: policy_loss=\(String(format: "%.4f", lastPolicyLoss)) \
+            (mean \(String(format: "%.4f", meanPolicyLoss))), \
+            value_loss=\(String(format: "%.4f", lastValueLoss)) \
+            (mean \(String(format: "%.4f", meanValueLoss)))
+            """)
+        trainingHistory.append((iteration, meanPolicyLoss, meanValueLoss))
     }
 
     private func policyLoss(
@@ -268,5 +295,43 @@ public class SantoriniTrainer {
 
     private func shouldStopEarly() -> Bool {
         iterationsSincePromotion >= 100
+    }
+
+    private func logPolicyNormalization(
+        targetSums: MLXArray,
+        predictedSums: MLXArray,
+        step: Int
+    ) {
+        let targetStats = summarize(targetSums)
+        let predictedStats = summarize(predictedSums)
+        let message = String(
+            format: "Policy sum stats at step %d (target mean=%.4f min=%.4f max=%.4f, predicted mean=%.4f min=%.4f max=%.4f)",
+            step,
+            targetStats.mean, targetStats.min, targetStats.max,
+            predictedStats.mean, predictedStats.min, predictedStats.max
+        )
+        print(message)
+
+        if abs(targetStats.mean - 1.0) > 1e-2 || targetStats.min < 0.98 || targetStats.max > 1.02 {
+            print("⚠️ Target policy sums are outside tolerance at step \(step).")
+        }
+        if abs(predictedStats.mean - 1.0) > 1e-2 || predictedStats.min < 0.98 || predictedStats.max > 1.02 {
+            print("⚠️ Predicted policy sums are outside tolerance at step \(step).")
+        }
+    }
+
+    private func summarize(_ array: MLXArray) -> (min: Float, max: Float, mean: Float) {
+        let values = array.asArray(Float.self)
+        guard let first = values.first else { return (0, 0, 0) }
+        var minValue = first
+        var maxValue = first
+        var sum: Float = 0
+        for value in values {
+            minValue = min(minValue, value)
+            maxValue = max(maxValue, value)
+            sum += value
+        }
+        let mean = sum / Float(values.count)
+        return (minValue, maxValue, mean)
     }
 }

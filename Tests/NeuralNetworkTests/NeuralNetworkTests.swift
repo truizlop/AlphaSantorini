@@ -74,4 +74,25 @@ final class NeuralNetworkTests: XCTestCase {
         }
         XCTAssertEqual(before.value, afterCopy.value, accuracy: 1e-5)
     }
+
+    func testSoftmaxWithoutAxisIsGlobalFor2D() {
+        let logits: [Float] = [0, 0, 10, 10]
+        let logitsArray = MLXArray(logits, [2, 2])
+        let noAxis = softmax(logitsArray)
+        let rowSums = noAxis.sum(axis: 1).asArray(Float.self)
+        XCTAssertEqual(rowSums.count, 2)
+        XCTAssertLessThan(rowSums[0], 0.01)
+        XCTAssertGreaterThan(rowSums[1], 0.99)
+        XCTAssertEqual(noAxis.sum().item(Float.self), 1.0, accuracy: 1e-5)
+    }
+
+    func testSoftmaxAxisNormalizesPerRow() {
+        let logits: [Float] = [0, 0, 10, 10]
+        let logitsArray = MLXArray(logits, [2, 2])
+        let perRow = softmax(logitsArray, axis: -1)
+        let rowSums = perRow.sum(axis: 1).asArray(Float.self)
+        XCTAssertEqual(rowSums.count, 2)
+        XCTAssertEqual(rowSums[0], 1.0, accuracy: 1e-5)
+        XCTAssertEqual(rowSums[1], 1.0, accuracy: 1e-5)
+    }
 }

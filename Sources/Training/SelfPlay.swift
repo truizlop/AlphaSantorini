@@ -83,7 +83,8 @@ public class SelfPlay: @unchecked Sendable {
             )
 
             if let bestAction {
-                history.append((state, bestAction, policy))
+                let normalizedPolicy = normalizePolicy(policy, move: move)
+                history.append((state, bestAction, normalizedPolicy))
                 state = state.applying(move: bestAction)
                 move += 1
             } else {
@@ -109,6 +110,32 @@ public class SelfPlay: @unchecked Sendable {
             )
         }
         return SelfPlayResult(samples: samples, wasTruncated: wasTruncated, moveCount: move)
+    }
+
+    private func normalizePolicy(_ policy: Policy, move: Int) -> Policy {
+        let sum = policy.values.reduce(0, +)
+        guard sum.isFinite else {
+            print("⚠️ Policy sum is not finite at move \(move).")
+            return policy
+        }
+        if sum <= 0 {
+            let count = policy.count
+            guard count > 0 else { return policy }
+            print("⚠️ Policy sum is \(sum) at move \(move); using uniform distribution.")
+            let uniform = 1.0 / Float(count)
+            return Dictionary(uniqueKeysWithValues: policy.keys.map { ($0, uniform) })
+        }
+        let delta = abs(sum - 1.0)
+        if delta > 1e-3 {
+            print("⚠️ Policy not normalized (sum=\(String(format: "%.5f", sum))) at move \(move). Renormalizing.")
+            var normalized: Policy = [:]
+            normalized.reserveCapacity(policy.count)
+            for (action, probability) in policy {
+                normalized[action] = probability / sum
+            }
+            return normalized
+        }
+        return policy
     }
 
     private func temperature(
