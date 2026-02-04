@@ -41,5 +41,31 @@ let package = Package(
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
             ]
         ),
+        .testTarget(
+            name: "TrainingTests",
+            dependencies: [
+                "Training",
+                .product(name: "Santorini", package: "SantoriniCore"),
+                .product(name: "MCTS", package: "SantoriniCore"),
+            ],
+            path: "Tests/TrainingTests"
+        ),
+        .testTarget(
+            name: "NeuralNetworkTests",
+            dependencies: [
+                "NeuralNetwork",
+            ],
+            path: "Tests/NeuralNetworkTests"
+        ),
+        .testTarget(
+            name: "IntegrationTests",
+            dependencies: [
+                "Training",
+                "NeuralNetwork",
+                .product(name: "Santorini", package: "SantoriniCore"),
+                .product(name: "MCTS", package: "SantoriniCore"),
+            ],
+            path: "Tests/IntegrationTests"
+        ),
     ]
 )

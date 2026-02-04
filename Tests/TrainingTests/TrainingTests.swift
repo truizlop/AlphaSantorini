@@ -1,0 +1,88 @@
+import XCTest
+@testable import Training
+import NeuralNetwork
+import Santorini
+
+final class TrainingTests: XCTestCase {
+    private func makeSample(row: Int, col: Int, outcome: Float) -> TrainingSample {
+        var state = GameState()
+        let encoding = row * 5 + col
+        let action = Action.from(encoding: encoding)!
+        if case let .placement(placement) = action {
+            state.placement(placement)
+        }
+        let policy: [Action: Float] = [action: 1.0]
+        return TrainingSample(state: state, action: action, policy: policy, outcome: outcome)
+    }
+
+    func testReplayBufferRespectsCapacity() {
+        let buffer = ReplayBuffer(maxSize: 3)
+        buffer.add([makeSample(row: 0, col: 0, outcome: 1)])
+        buffer.add([makeSample(row: 0, col: 1, outcome: -1)])
+        buffer.add([makeSample(row: 0, col: 2, outcome: 1)])
+        XCTAssertEqual(buffer.count, 3)
+
+        buffer.add([makeSample(row: 0, col: 3, outcome: 0)])
+        XCTAssertEqual(buffer.count, 3)
+    }
+
+    func testReplayBufferSampleIsUniqueWhenPossible() {
+        let buffer = ReplayBuffer(maxSize: 10)
+        buffer.add([
+            makeSample(row: 0, col: 0, outcome: 1),
+            makeSample(row: 0, col: 1, outcome: 1),
+            makeSample(row: 0, col: 2, outcome: 1),
+            makeSample(row: 0, col: 3, outcome: 1),
+        ])
+
+        let batch = buffer.sample(batchSize: 3)
+        let hashes = batch.map(\.stateHash)
+        XCTAssertEqual(Set(hashes).count, hashes.count)
+    }
+
+    func testTrainingSampleEncodingAndStateHash() {
+        var sample = makeSample(row: 1, col: 1, outcome: 1)
+        XCTAssertEqual(sample.encodedPolicy.count, Action.total)
+
+        let oldHash = sample.stateHash
+        var newState = GameState()
+        if case let .placement(placement) = Action.from(encoding: 24)! {
+            newState.placement(placement)
+        }
+        sample.state = newState
+        XCTAssertNotEqual(sample.stateHash, oldHash)
+    }
+
+    func testSelfPlayProducesSamples() {
+        let net = SantoriniNet(hiddenDimension: 16)
+        let selfPlay = SelfPlay()
+        let samples = selfPlay.run(evaluator: net, iterations: 1, noise: nil, batchSize: 1)
+        XCTAssertFalse(samples.isEmpty)
+        XCTAssertTrue(samples.allSatisfy { $0.encodedPolicy.count == Action.total })
+        XCTAssertTrue(samples.allSatisfy { [-1.0, 0.0, 1.0].contains($0.outcome) })
+    }
+
+    func testTrainingConfigCustomValues() {
+        let tempDir = URL(filePath: NSTemporaryDirectory()).appending(path: "santorini_tests")
+        let config = TrainingConfig(
+            hiddenDimension: 32,
+            gamesPerIteration: 1,
+            MCTSSimulations: 1,
+            mctsBatchSize: 1,
+            noise: nil,
+            batchSize: 2,
+            trainingStepsPerIteration: 1,
+            learningRate: 0.01,
+            replayBufferSize: 10,
+            evaluationGames: 0,
+            promotionThreshold: 0.5,
+            evaluationInterval: 100,
+            checkpointInterval: 100,
+            checkpointDirectory: tempDir
+        )
+        XCTAssertEqual(config.hiddenDimension, 32)
+        XCTAssertEqual(config.gamesPerIteration, 1)
+        XCTAssertEqual(config.checkpointDirectory, tempDir)
+        XCTAssertNil(config.noise)
+    }
+}
