@@ -139,15 +139,36 @@ public class SantoriniTrainer {
             let targetValues = MLXArray(encodedValues, [batch.count, 1])
             let targets = concatenated([targetPolicies, targetValues], axis: 1)
 
+            let shouldLog = step == 1 || step % 50 == 0 || step == config.trainingStepsPerIteration
             var stepPolicyLoss: MLXArray?
             var stepValueLoss: MLXArray?
             var stepTargetPolicySum: MLXArray?
             var stepPredPolicySum: MLXArray?
+            var stepTargetEntropy: MLXArray?
+            var stepPredEntropy: MLXArray?
+            var stepKLDivergence: MLXArray?
+            var stepTargetMax: MLXArray?
+            var stepPredMax: MLXArray?
             let (_, grad) = valueAndGrad(model: model) { net, input, targets in
                 let (policy, value) = net(input)
                 let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
-                stepTargetPolicySum = splits[0].sum(axis: 1)
-                stepPredPolicySum = policy.sum(axis: 1)
+                if shouldLog {
+                    stepTargetPolicySum = splits[0].sum(axis: 1)
+                    stepPredPolicySum = policy.sum(axis: 1)
+                    let eps: Float = 1e-8
+                    let logTarget = log(splits[0] + eps)
+                    let logPred = log(policy + eps)
+                    stepTargetEntropy = -sum(splits[0] * logTarget, axis: 1)
+                    stepPredEntropy = -sum(policy * logPred, axis: 1)
+                    let crossEntropy = -sum(splits[0] * logPred, axis: 1)
+                    if let stepTargetEntropy {
+                        stepKLDivergence = crossEntropy - stepTargetEntropy
+                    } else {
+                        stepKLDivergence = crossEntropy
+                    }
+                    stepTargetMax = splits[0].max(axis: 1)
+                    stepPredMax = policy.max(axis: 1)
+                }
                 let policyLoss = self.policyLoss(predicted: policy, target: splits[0])
                 let valueLoss = self.valueLoss(predicted: value, target: splits[1])
                 stepPolicyLoss = policyLoss
@@ -165,15 +186,23 @@ public class SantoriniTrainer {
                 lastValueLoss = valueLossValue
             }
 
-            if step == 1 || step % 50 == 0 || step == config.trainingStepsPerIteration {
+            if shouldLog {
                 if let stepTargetPolicySum, let stepPredPolicySum {
                     eval(stepTargetPolicySum, stepPredPolicySum)
-                    logPolicyNormalization(
-                        targetSums: stepTargetPolicySum,
-                        predictedSums: stepPredPolicySum,
-                        step: step
-                    )
                 }
+                if let stepTargetEntropy, let stepPredEntropy, let stepKLDivergence, let stepTargetMax, let stepPredMax {
+                    eval(stepTargetEntropy, stepPredEntropy, stepKLDivergence, stepTargetMax, stepPredMax)
+                }
+                logPolicyDiagnostics(
+                    targetSums: stepTargetPolicySum,
+                    predictedSums: stepPredPolicySum,
+                    targetEntropy: stepTargetEntropy,
+                    predictedEntropy: stepPredEntropy,
+                    klDivergence: stepKLDivergence,
+                    targetMax: stepTargetMax,
+                    predictedMax: stepPredMax,
+                    step: step
+                )
             }
 
             optimizer.update(model: model, gradients: grad)
@@ -297,26 +326,59 @@ public class SantoriniTrainer {
         iterationsSincePromotion >= 100
     }
 
-    private func logPolicyNormalization(
-        targetSums: MLXArray,
-        predictedSums: MLXArray,
+    private func logPolicyDiagnostics(
+        targetSums: MLXArray?,
+        predictedSums: MLXArray?,
+        targetEntropy: MLXArray?,
+        predictedEntropy: MLXArray?,
+        klDivergence: MLXArray?,
+        targetMax: MLXArray?,
+        predictedMax: MLXArray?,
         step: Int
     ) {
-        let targetStats = summarize(targetSums)
-        let predictedStats = summarize(predictedSums)
-        let message = String(
-            format: "Policy sum stats at step %d (target mean=%.4f min=%.4f max=%.4f, predicted mean=%.4f min=%.4f max=%.4f)",
-            step,
-            targetStats.mean, targetStats.min, targetStats.max,
-            predictedStats.mean, predictedStats.min, predictedStats.max
-        )
-        print(message)
+        if let targetSums, let predictedSums {
+            let targetStats = summarize(targetSums)
+            let predictedStats = summarize(predictedSums)
+            let message = String(
+                format: "Policy sum stats at step %d (target mean=%.6f min=%.6f max=%.6f, predicted mean=%.6f min=%.6f max=%.6f)",
+                step,
+                targetStats.mean, targetStats.min, targetStats.max,
+                predictedStats.mean, predictedStats.min, predictedStats.max
+            )
+            print(message)
 
-        if abs(targetStats.mean - 1.0) > 1e-2 || targetStats.min < 0.98 || targetStats.max > 1.02 {
-            print("⚠️ Target policy sums are outside tolerance at step \(step).")
+            if abs(targetStats.mean - 1.0) > 1e-2 || targetStats.min < 0.98 || targetStats.max > 1.02 {
+                print("⚠️ Target policy sums are outside tolerance at step \(step).")
+            }
+            if abs(predictedStats.mean - 1.0) > 1e-2 || predictedStats.min < 0.98 || predictedStats.max > 1.02 {
+                print("⚠️ Predicted policy sums are outside tolerance at step \(step).")
+            }
         }
-        if abs(predictedStats.mean - 1.0) > 1e-2 || predictedStats.min < 0.98 || predictedStats.max > 1.02 {
-            print("⚠️ Predicted policy sums are outside tolerance at step \(step).")
+
+        if let targetEntropy, let predictedEntropy, let klDivergence {
+            let targetStats = summarize(targetEntropy)
+            let predictedStats = summarize(predictedEntropy)
+            let klStats = summarize(klDivergence)
+            let message = String(
+                format: "Policy entropy/KL at step %d (target mean=%.4f min=%.4f max=%.4f, predicted mean=%.4f min=%.4f max=%.4f, KL mean=%.4f min=%.4f max=%.4f)",
+                step,
+                targetStats.mean, targetStats.min, targetStats.max,
+                predictedStats.mean, predictedStats.min, predictedStats.max,
+                klStats.mean, klStats.min, klStats.max
+            )
+            print(message)
+        }
+
+        if let targetMax, let predictedMax {
+            let targetStats = summarize(targetMax)
+            let predictedStats = summarize(predictedMax)
+            let message = String(
+                format: "Policy peak probs at step %d (target mean=%.4f min=%.4f max=%.4f, predicted mean=%.4f min=%.4f max=%.4f)",
+                step,
+                targetStats.mean, targetStats.min, targetStats.max,
+                predictedStats.mean, predictedStats.min, predictedStats.max
+            )
+            print(message)
         }
     }
 
