@@ -129,6 +129,7 @@ public class SantoriniTrainer {
 
         var headerPrinted = false
         var lastSnapshot: PolicyLogSnapshot?
+        var logSnapshots: [PolicyLogSnapshot] = []
 
         for step in 1 ... config.trainingStepsPerIteration {
             let batch = replayBuffer.sample(batchSize: config.batchSize)
@@ -210,6 +211,9 @@ public class SantoriniTrainer {
                     previous: lastSnapshot,
                     headerPrinted: &headerPrinted
                 )
+                if let lastSnapshot {
+                    logSnapshots.append(lastSnapshot)
+                }
             }
 
             optimizer.update(model: model, gradients: grad)
@@ -225,6 +229,7 @@ public class SantoriniTrainer {
             value_loss=\(String(format: "%.4f", lastValueLoss)) \
             (mean \(String(format: "%.4f", meanValueLoss)))
             """)
+        logTrendSummary(logSnapshots)
         trainingHistory.append((iteration, meanPolicyLoss, meanValueLoss))
     }
 
@@ -443,5 +448,40 @@ public class SantoriniTrainer {
         }
         let mean = sum / Float(values.count)
         return (minValue, maxValue, mean)
+    }
+
+    private func logTrendSummary(_ snapshots: [PolicyLogSnapshot]) {
+        guard let first = snapshots.first, let last = snapshots.last, snapshots.count > 1 else {
+            return
+        }
+
+        func trend(_ first: Float, _ last: Float) -> (arrow: String, delta: Float, perLog: Float) {
+            let delta = last - first
+            let perLog = delta / Float(max(1, snapshots.count - 1))
+            let arrow: String
+            if delta < -0.01 {
+                arrow = "↓"
+            } else if delta > 0.01 {
+                arrow = "↑"
+            } else {
+                arrow = "→"
+            }
+            return (arrow, delta, perLog)
+        }
+
+        let policyTrend = trend(first.policyLoss, last.policyLoss)
+        let valueTrend = trend(first.valueLoss, last.valueLoss)
+        let klTrend = trend(first.klDivergence, last.klDivergence)
+        let pEntTrend = trend(first.predictedEntropy, last.predictedEntropy)
+        let pMaxTrend = trend(first.predictedMax, last.predictedMax)
+
+        print("""
+            Trend summary (first→last over \(snapshots.count) logs):
+              Policy loss \(policyTrend.arrow) Δ\(String(format: "%.4f", policyTrend.delta)) (per log \(String(format: "%.4f", policyTrend.perLog)))
+              Value loss  \(valueTrend.arrow) Δ\(String(format: "%.4f", valueTrend.delta)) (per log \(String(format: "%.4f", valueTrend.perLog)))
+              KL          \(klTrend.arrow) Δ\(String(format: "%.4f", klTrend.delta)) (per log \(String(format: "%.4f", klTrend.perLog)))
+              Pred entropy\(pEntTrend.arrow) Δ\(String(format: "%.4f", pEntTrend.delta)) (per log \(String(format: "%.4f", pEntTrend.perLog)))
+              Pred max    \(pMaxTrend.arrow) Δ\(String(format: "%.4f", pMaxTrend.delta)) (per log \(String(format: "%.4f", pMaxTrend.perLog)))
+            """)
     }
 }
