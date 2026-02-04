@@ -150,6 +150,22 @@ final class MCTSTests: XCTestCase {
         }
     }
 
+    func testMctsBatchedHandlesSmallIterations() {
+        let root = TestState(toPlay: 0, terminal: false, terminalScore: 0, winningMove: .win)
+        let evaluator = UniformEvaluator()
+        var rng = SeededGenerator(seed: 123)
+        let result = mctsBatched(
+            rootState: root,
+            evaluator: evaluator,
+            iterations: 2,
+            temperature: 1.0,
+            rng: &rng,
+            batchSize: 8
+        )
+        XCTAssertFalse(result.distribution.isEmpty)
+        XCTAssertNotNil(result.distribution[.win])
+    }
+
     func testExpandIsIdempotent() {
         let state = TestState(toPlay: 0, terminal: false, terminalScore: 0, winningMove: .win)
         let node = MCTSNode(state: state, move: nil, prior: 0)

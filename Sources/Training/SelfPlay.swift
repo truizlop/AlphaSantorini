@@ -88,6 +88,8 @@ public class SelfPlay: @unchecked Sendable {
                 move += 1
             } else {
                 assertionFailure("No best action found yet the game is not over")
+                wasTruncated = true
+                break
             }
         }
 

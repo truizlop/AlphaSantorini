@@ -33,6 +33,8 @@ class AIVSPlay {
             if let action {
                 state = state.applying(move: action)
                 moves += 1
+            } else {
+                return nil
             }
         }
 
