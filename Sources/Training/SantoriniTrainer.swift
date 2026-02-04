@@ -224,14 +224,22 @@ public class SantoriniTrainer {
         for game in 0 ..< games {
             let currentNetworkPlaysFirst = (game % 2 == 0)
             if currentNetworkPlaysFirst {
-                if let winner = aiVSPlay.play(player1: current, player2: best) {
+                if let winner = aiVSPlay.play(
+                    player1: current,
+                    player2: best,
+                    maxMoves: config.maxMovesPerGame
+                ) {
                     winsCurrent += (winner == .one) ? 1 : 0
                     winsBest += (winner == .two) ? 1 : 0
                 } else {
                     draws += 1
                 }
             } else {
-                if let winner = aiVSPlay.play(player1: best, player2: current) {
+                if let winner = aiVSPlay.play(
+                    player1: best,
+                    player2: current,
+                    maxMoves: config.maxMovesPerGame
+                ) {
                     winsCurrent += (winner == .two) ? 1 : 0
                     winsBest += (winner == .one) ? 1 : 0
                 } else {
