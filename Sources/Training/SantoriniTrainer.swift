@@ -139,7 +139,7 @@ public class SantoriniTrainer {
 
             var stepPolicyLoss: MLXArray?
             var stepValueLoss: MLXArray?
-            let (loss, grad) = valueAndGrad(model: model) { net, input, targets in
+            let (_, grad) = valueAndGrad(model: model) { net, input, targets in
                 let (policy, value) = net(input)
                 let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
                 let policyLoss = self.policyLoss(predicted: policy, target: splits[0])

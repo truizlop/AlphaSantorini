@@ -8,7 +8,7 @@
 import Santorini
 import MCTS
 
-extension Santorini.Action: ActionEncodable {}
+extension Santorini.Action: @retroactive ActionEncodable {}
 
 extension Santorini.GameState: MCTS.GameState {
     public typealias Move = Action
