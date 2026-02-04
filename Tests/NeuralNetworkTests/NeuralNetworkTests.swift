@@ -45,7 +45,14 @@ final class NeuralNetworkTests: XCTestCase {
         copy.copyWeights(from: net)
 
         let input = makeInput()
+        let original = net.evaluate(input)
         let before = copy.evaluate(input)
+
+        XCTAssertEqual(original.policy.count, before.policy.count)
+        for (a, b) in zip(original.policy, before.policy) {
+            XCTAssertEqual(a, b, accuracy: 1e-5)
+        }
+        XCTAssertEqual(original.value, before.value, accuracy: 1e-5)
 
         // Mutate original network parameters.
         let params = net.parameters().flattened()
