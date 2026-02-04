@@ -21,5 +21,20 @@ let package = Package(
             dependencies: [],
             path: "Sources/MCTS"
         ),
+        .testTarget(
+            name: "SantoriniTests",
+            dependencies: [
+                "Santorini",
+            ],
+            path: "Tests/SantoriniTests"
+        ),
+        .testTarget(
+            name: "MCTSTests",
+            dependencies: [
+                "MCTS",
+                "Santorini",
+            ],
+            path: "Tests/MCTSTests"
+        ),
     ]
 )

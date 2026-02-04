@@ -42,7 +42,7 @@ public class MCTSNode<State: GameState> {
 
     func puctScore(explorationConstant: Float) -> Float {
         let parentVisits = parent?.visits ?? 1
-        let q = meanValue
+        let q = -meanValue
         let u = explorationConstant * prior * sqrt(Float(parentVisits)) / Float(1 + visits)
         return q + u
     }
@@ -70,6 +70,9 @@ public class MCTSNode<State: GameState> {
     func expand(with policy: [Float], value: Float) -> Float {
         let legalMoves = cachedLegalMoves
         guard !legalMoves.isEmpty else { return value }
+        if !children.isEmpty {
+            return value
+        }
 
         let rawPriors = legalMoves.map { move -> Float in
             let encoding = move.encoded()
