@@ -11,6 +11,12 @@ import NeuralNetwork
 
 typealias Policy = [Action: Float]
 
+public struct SelfPlayResult {
+    public let samples: [TrainingSample]
+    public let wasTruncated: Bool
+    public let moveCount: Int
+}
+
 public class SelfPlay: @unchecked Sendable {
     public init() {}
     
@@ -20,16 +26,58 @@ public class SelfPlay: @unchecked Sendable {
         noise: DirichletNoise?,
         batchSize: Int
     ) -> [TrainingSample] {
+        let result = runWithDiagnostics(
+            evaluator: evaluator,
+            iterations: iterations,
+            noise: noise,
+            batchSize: batchSize,
+            maxMoves: nil
+        )
+        return result.wasTruncated ? [] : result.samples
+    }
+
+    public func runWithDiagnostics(
+        evaluator: SantoriniNet,
+        iterations: Int,
+        noise: DirichletNoise?,
+        batchSize: Int,
+        maxMoves: Int?
+    ) -> SelfPlayResult {
+        var rng = SystemRandomNumberGenerator()
+        return runWithDiagnostics(
+            evaluator: evaluator,
+            iterations: iterations,
+            noise: noise,
+            batchSize: batchSize,
+            maxMoves: maxMoves,
+            rng: &rng
+        )
+    }
+
+    public func runWithDiagnostics<R: RandomNumberGenerator>(
+        evaluator: SantoriniNet,
+        iterations: Int,
+        noise: DirichletNoise?,
+        batchSize: Int,
+        maxMoves: Int?,
+        rng: inout R
+    ) -> SelfPlayResult {
         var state = GameState()
         var history: [(Santorini.GameState, Action, Policy)] = []
         var move = 0
+        var wasTruncated = false
 
         while !state.isOver {
+            if let maxMoves, move >= maxMoves {
+                wasTruncated = true
+                break
+            }
             let (bestAction, policy) = mctsBatched(
                 rootState: state,
                 evaluator: evaluator,
                 iterations: iterations,
                 temperature: temperature(for: move, isTraining: noise != nil),
+                rng: &rng,
                 noise: noise,
                 batchSize: batchSize
             )
@@ -44,7 +92,7 @@ public class SelfPlay: @unchecked Sendable {
         }
 
         let terminalWinner = state.winner
-        return history.map { item in
+        let samples = history.map { item in
             let adjustedOutcome: Float
             if let terminalWinner {
                 adjustedOutcome = terminalWinner == item.0.turn ? 1 : -1
@@ -58,6 +106,7 @@ public class SelfPlay: @unchecked Sendable {
                 outcome: adjustedOutcome
             )
         }
+        return SelfPlayResult(samples: samples, wasTruncated: wasTruncated, moveCount: move)
     }
 
     private func temperature(

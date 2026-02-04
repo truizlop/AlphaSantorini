@@ -78,18 +78,25 @@ public class SantoriniTrainer {
         let batchSize = self.config.mctsBatchSize
         let selfPlay = self.selfPlay
         let noise = self.config.noise
+        let maxMovesPerGame = self.config.maxMovesPerGame
         let profilingEnabled = ProcessInfo.processInfo.environment["SANTORINI_PROFILE"] == "1"
         MCTSProfiler.enabled = profilingEnabled
 
         let start = Date().timeIntervalSince1970
+        var truncatedGames = 0
         for game in 1 ... self.config.gamesPerIteration {
-            let samples = selfPlay.run(
+            let result = selfPlay.runWithDiagnostics(
                 evaluator: model,
                 iterations: iterations,
                 noise: noise,
-                batchSize: batchSize
+                batchSize: batchSize,
+                maxMoves: maxMovesPerGame
             )
-            replayBuffer.add(samples)
+            if result.wasTruncated {
+                truncatedGames += 1
+            } else {
+                replayBuffer.add(result.samples)
+            }
             if game % 5 == 0 {
                 print("Completed self-play \(game)/\(config.gamesPerIteration)")
             }
@@ -101,7 +108,11 @@ public class SantoriniTrainer {
         }
 
         totalGamesPlayed += config.gamesPerIteration
-        print("Self-play ended (\(replayBuffer.count) training samples).")
+        if truncatedGames > 0 {
+            print("Self-play ended (\(replayBuffer.count) training samples, \(truncatedGames) truncated games).")
+        } else {
+            print("Self-play ended (\(replayBuffer.count) training samples).")
+        }
     }
 
     private func trainingPhase(iteration: Int) {

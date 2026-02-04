@@ -62,6 +62,20 @@ final class TrainingTests: XCTestCase {
         XCTAssertTrue(samples.allSatisfy { [-1.0, 0.0, 1.0].contains($0.outcome) })
     }
 
+    func testSelfPlayTruncationSkipsSamples() {
+        let net = SantoriniNet(hiddenDimension: 16)
+        let selfPlay = SelfPlay()
+        let result = selfPlay.runWithDiagnostics(
+            evaluator: net,
+            iterations: 1,
+            noise: nil,
+            batchSize: 1,
+            maxMoves: 0
+        )
+        XCTAssertTrue(result.wasTruncated)
+        XCTAssertTrue(result.samples.isEmpty)
+    }
+
     func testTrainingConfigCustomValues() {
         let tempDir = URL(filePath: NSTemporaryDirectory()).appending(path: "santorini_tests")
         let config = TrainingConfig(
@@ -70,6 +84,7 @@ final class TrainingTests: XCTestCase {
             MCTSSimulations: 1,
             mctsBatchSize: 1,
             noise: nil,
+            maxMovesPerGame: 10,
             batchSize: 2,
             trainingStepsPerIteration: 1,
             learningRate: 0.01,
@@ -84,5 +99,6 @@ final class TrainingTests: XCTestCase {
         XCTAssertEqual(config.gamesPerIteration, 1)
         XCTAssertEqual(config.checkpointDirectory, tempDir)
         XCTAssertNil(config.noise)
+        XCTAssertEqual(config.maxMovesPerGame, 10)
     }
 }
