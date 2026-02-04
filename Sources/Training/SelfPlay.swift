@@ -65,6 +65,6 @@ public class SelfPlay: @unchecked Sendable {
         isTraining: Bool
     ) -> Float {
         guard isTraining else { return 0.0 }
-        return move < 20 ? 1.5 : 0.0
+        return move < 30 ? 1.5 : 0.0
     }
 }
