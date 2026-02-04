@@ -15,6 +15,27 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork>(
     explorationConstant: Float = 1.5,
     noise: DirichletNoise? = nil
 ) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
+    var rng = SystemRandomNumberGenerator()
+    return mcts(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise
+    )
+}
+
+public func mcts<State: GameState, Evaluator: PolicyValueNetwork, R: RandomNumberGenerator>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    rng: inout R,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil
+) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
     let root = MCTSNode(
         state: rootState,
         move: nil,
@@ -23,7 +44,7 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork>(
     root.expand(using: evaluator)
 
     if let noise {
-        root.addDirichletNoise(noise)
+        root.addDirichletNoise(noise, rng: &rng)
     }
 
     for _ in 0 ..< iterations {
@@ -43,7 +64,10 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork>(
         node.backpropagate(value: value)
     }
 
-    return (bestMove(from: root, temperature: temperature), visitDistribution(from: root, temperature: temperature))
+    return (
+        bestMove(from: root, temperature: temperature, rng: &rng),
+        visitDistribution(from: root, temperature: temperature)
+    )
 }
 
 public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
@@ -51,6 +75,29 @@ public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
     evaluator: Evaluator,
     iterations: Int,
     temperature: Float,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil,
+    batchSize: Int = 16
+) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
+    var rng = SystemRandomNumberGenerator()
+    return mctsBatched(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise,
+        batchSize: batchSize
+    )
+}
+
+public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    rng: inout R,
     explorationConstant: Float = 1.5,
     noise: DirichletNoise? = nil,
     batchSize: Int = 16
@@ -66,7 +113,7 @@ public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
     _ = root.expand(with: rootPolicies[0], value: rootValues[0])
 
     if let noise {
-        root.addDirichletNoise(noise)
+        root.addDirichletNoise(noise, rng: &rng)
     }
 
     var remaining = iterations
@@ -107,12 +154,16 @@ public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
         }
     }
 
-    return (bestMove(from: root, temperature: temperature), visitDistribution(from: root, temperature: temperature))
+    return (
+        bestMove(from: root, temperature: temperature, rng: &rng),
+        visitDistribution(from: root, temperature: temperature)
+    )
 }
 
-private func bestMove<State>(
+private func bestMove<State, R: RandomNumberGenerator>(
     from node: MCTSNode<State>,
-    temperature: Float
+    temperature: Float,
+    rng: inout R
 ) -> State.Move? {
     guard temperature != 0 else {
         return node.children.max { a, b in
@@ -128,9 +179,11 @@ private func bestMove<State>(
         let priors = node.children.map { max(0, $0.prior) }
         let priorTotal = priors.reduce(0, +)
         guard priorTotal > 0 else {
-            return node.children.randomElement()?.move
+            guard !node.children.isEmpty else { return nil }
+            let index = Int.random(in: 0 ..< node.children.count, using: &rng)
+            return node.children[index].move
         }
-        let random = Float.random(in: 0 ..< 1)
+        let random = Float.random(in: 0 ..< 1, using: &rng)
         var cumulative: Float = 0.0
         for (i, prior) in priors.enumerated() {
             cumulative += prior / priorTotal
@@ -142,7 +195,7 @@ private func bestMove<State>(
     }
     let probabilities = adjusted.map { $0 / total }
 
-    let random = Float.random(in: 0 ..< 1)
+    let random = Float.random(in: 0 ..< 1, using: &rng)
     var cumulative: Float = 0.0
 
     for (i, probability) in probabilities.enumerated() {
