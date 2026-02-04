@@ -21,3 +21,6 @@ web/.vite/
 *.log
 .swiftpm/xcode/xcuserdata/tomasruizlopez.xcuserdatad/xcschemes/xcschememanagement.plist
 .swiftpm/xcode/xcuserdata
+
+# MLX Metal library
+default.metallib

@@ -1,4 +1,4 @@
-.PHONY: help build run-release wasm onnx onnx-verify web-install web-build web-dev clean
+.PHONY: help build run-release metallib wasm onnx onnx-verify web-install web-build web-dev clean
 
 SWIFT ?= xcrun --toolchain $(XCODE_TOOLCHAIN) swift
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
@@ -18,6 +18,7 @@ help:
 	@echo "Targets:"
 	@echo "  build        Build native Swift package"
 	@echo "  run-release  Build and run Release executable"
+	@echo "  metallib     Build default.metallib for MLX Metal backend"
 	@echo "  wasm         Build SwiftWasm bundle (auto-detects WASM_SDK)"
 	@echo "  onnx         Export ONNX model (requires CHECKPOINT=...)" 
 	@echo "  onnx-verify  Verify ONNX model with onnxruntime-node"
@@ -32,8 +33,13 @@ help:
 build:
 	$(SWIFT_CMD) build
 
-run-release:
+run-release: metallib
 	$(SWIFT_CMD) run -c release AlphaSantorini
+
+metallib:
+	@if [ ! -f default.metallib ]; then \
+		tools/build-default-metallib.sh; \
+	fi
 
 wasm:
 	@TOOLCHAINS_ENV="$(TOOLCHAINS)"; \
