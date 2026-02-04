@@ -127,6 +127,9 @@ public class SantoriniTrainer {
         var lastPolicyLoss: Float = 0.0
         var lastValueLoss: Float = 0.0
 
+        var headerPrinted = false
+        var lastSnapshot: PolicyLogSnapshot?
+
         for step in 1 ... config.trainingStepsPerIteration {
             let batch = replayBuffer.sample(batchSize: config.batchSize)
             let encodedStates = batch.map { $0.state.encoded() }
@@ -193,7 +196,7 @@ public class SantoriniTrainer {
                 if let stepTargetEntropy, let stepPredEntropy, let stepKLDivergence, let stepTargetMax, let stepPredMax {
                     eval(stepTargetEntropy, stepPredEntropy, stepKLDivergence, stepTargetMax, stepPredMax)
                 }
-                logPolicyDiagnostics(
+                lastSnapshot = logPolicyDiagnostics(
                     targetSums: stepTargetPolicySum,
                     predictedSums: stepPredPolicySum,
                     targetEntropy: stepTargetEntropy,
@@ -201,7 +204,11 @@ public class SantoriniTrainer {
                     klDivergence: stepKLDivergence,
                     targetMax: stepTargetMax,
                     predictedMax: stepPredMax,
-                    step: step
+                    step: step,
+                    policyLoss: lastPolicyLoss,
+                    valueLoss: lastValueLoss,
+                    previous: lastSnapshot,
+                    headerPrinted: &headerPrinted
                 )
             }
 
@@ -326,6 +333,19 @@ public class SantoriniTrainer {
         iterationsSincePromotion >= 100
     }
 
+    private struct PolicyLogSnapshot {
+        let step: Int
+        let policyLoss: Float
+        let valueLoss: Float
+        let targetSum: Float
+        let predictedSum: Float
+        let targetEntropy: Float
+        let predictedEntropy: Float
+        let klDivergence: Float
+        let targetMax: Float
+        let predictedMax: Float
+    }
+
     private func logPolicyDiagnostics(
         targetSums: MLXArray?,
         predictedSums: MLXArray?,
@@ -334,52 +354,80 @@ public class SantoriniTrainer {
         klDivergence: MLXArray?,
         targetMax: MLXArray?,
         predictedMax: MLXArray?,
-        step: Int
-    ) {
-        if let targetSums, let predictedSums {
-            let targetStats = summarize(targetSums)
-            let predictedStats = summarize(predictedSums)
-            let message = String(
-                format: "Policy sum stats at step %d (target mean=%.6f min=%.6f max=%.6f, predicted mean=%.6f min=%.6f max=%.6f)",
-                step,
-                targetStats.mean, targetStats.min, targetStats.max,
-                predictedStats.mean, predictedStats.min, predictedStats.max
-            )
-            print(message)
-
-            if abs(targetStats.mean - 1.0) > 1e-2 || targetStats.min < 0.98 || targetStats.max > 1.02 {
-                print("⚠️ Target policy sums are outside tolerance at step \(step).")
-            }
-            if abs(predictedStats.mean - 1.0) > 1e-2 || predictedStats.min < 0.98 || predictedStats.max > 1.02 {
-                print("⚠️ Predicted policy sums are outside tolerance at step \(step).")
-            }
+        step: Int,
+        policyLoss: Float,
+        valueLoss: Float,
+        previous: PolicyLogSnapshot?,
+        headerPrinted: inout Bool
+    ) -> PolicyLogSnapshot? {
+        guard let targetSums,
+              let predictedSums,
+              let targetEntropy,
+              let predictedEntropy,
+              let klDivergence,
+              let targetMax,
+              let predictedMax else {
+            return previous
         }
 
-        if let targetEntropy, let predictedEntropy, let klDivergence {
-            let targetStats = summarize(targetEntropy)
-            let predictedStats = summarize(predictedEntropy)
-            let klStats = summarize(klDivergence)
-            let message = String(
-                format: "Policy entropy/KL at step %d (target mean=%.4f min=%.4f max=%.4f, predicted mean=%.4f min=%.4f max=%.4f, KL mean=%.4f min=%.4f max=%.4f)",
-                step,
-                targetStats.mean, targetStats.min, targetStats.max,
-                predictedStats.mean, predictedStats.min, predictedStats.max,
-                klStats.mean, klStats.min, klStats.max
-            )
-            print(message)
+        let targetSumStats = summarize(targetSums)
+        let predictedSumStats = summarize(predictedSums)
+        let targetEntropyStats = summarize(targetEntropy)
+        let predictedEntropyStats = summarize(predictedEntropy)
+        let klStats = summarize(klDivergence)
+        let targetMaxStats = summarize(targetMax)
+        let predictedMaxStats = summarize(predictedMax)
+
+        let snapshot = PolicyLogSnapshot(
+            step: step,
+            policyLoss: policyLoss,
+            valueLoss: valueLoss,
+            targetSum: targetSumStats.mean,
+            predictedSum: predictedSumStats.mean,
+            targetEntropy: targetEntropyStats.mean,
+            predictedEntropy: predictedEntropyStats.mean,
+            klDivergence: klStats.mean,
+            targetMax: targetMaxStats.mean,
+            predictedMax: predictedMaxStats.mean
+        )
+
+        if !headerPrinted {
+            print("""
+                Step | P_Loss  dP     | V_Loss  dV     | KL      dKL    | P_Ent  | P_Max  | T_Ent  | T_Max  | SumP  | SumT
+                -----+---------------+---------------+---------------+--------+--------+--------+--------+-------+------
+                """)
+            headerPrinted = true
         }
 
-        if let targetMax, let predictedMax {
-            let targetStats = summarize(targetMax)
-            let predictedStats = summarize(predictedMax)
-            let message = String(
-                format: "Policy peak probs at step %d (target mean=%.4f min=%.4f max=%.4f, predicted mean=%.4f min=%.4f max=%.4f)",
-                step,
-                targetStats.mean, targetStats.min, targetStats.max,
-                predictedStats.mean, predictedStats.min, predictedStats.max
-            )
-            print(message)
+        func delta(_ current: Float, _ previous: Float?) -> String {
+            guard let previous else { return "   --" }
+            let value = current - previous
+            return String(format: "%+7.4f", Double(value))
         }
+
+        let line = String(
+            format: "%4d | %7.4f %@ | %7.4f %@ | %7.4f %@ | %6.3f | %6.3f | %6.3f | %6.3f | %5.3f | %5.3f",
+            step,
+            Double(snapshot.policyLoss), delta(snapshot.policyLoss, previous?.policyLoss),
+            Double(snapshot.valueLoss), delta(snapshot.valueLoss, previous?.valueLoss),
+            Double(snapshot.klDivergence), delta(snapshot.klDivergence, previous?.klDivergence),
+            Double(snapshot.predictedEntropy),
+            Double(snapshot.predictedMax),
+            Double(snapshot.targetEntropy),
+            Double(snapshot.targetMax),
+            Double(snapshot.predictedSum),
+            Double(snapshot.targetSum)
+        )
+        print(line)
+
+        if abs(targetSumStats.mean - 1.0) > 1e-2 || targetSumStats.min < 0.98 || targetSumStats.max > 1.02 {
+            print("⚠️ Target policy sums are outside tolerance at step \(step).")
+        }
+        if abs(predictedSumStats.mean - 1.0) > 1e-2 || predictedSumStats.min < 0.98 || predictedSumStats.max > 1.02 {
+            print("⚠️ Predicted policy sums are outside tolerance at step \(step).")
+        }
+
+        return snapshot
     }
 
     private func summarize(_ array: MLXArray) -> (min: Float, max: Float, mean: Float) {
