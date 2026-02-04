@@ -18,6 +18,24 @@ Optional:
 swift build
 ```
 
+## Tests
+
+Run the full suite (core rules/MCTS + training + neural network + integration):
+
+```sh
+swift test
+```
+
+Run only the core package tests (Santorini rules + MCTS) without MLX dependencies:
+
+```sh
+swift test --package-path Packages/SantoriniCore
+```
+
+Notes:
+- The integration test runs a tiny 1-iteration training loop and writes a checkpoint into a temporary directory. It cleans up after itself.
+- If MLX/Metal flakiness appears on your machine, re-run the failing test to confirm and report the exact failure output.
+
 ## Build the SwiftWasm bundle (JavaScriptKit PackageToJS)
 
 From the repo root, first confirm the WASM SDK is installed:
