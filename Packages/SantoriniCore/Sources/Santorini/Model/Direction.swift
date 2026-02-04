@@ -5,7 +5,7 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
-public enum Direction: Int, CaseIterable, Hashable {
+public enum Direction: Int, CaseIterable, Hashable, CustomStringConvertible {
     case nw = 0
     case n = 1
     case ne = 2
@@ -41,7 +41,7 @@ public enum Direction: Int, CaseIterable, Hashable {
         }
     }
 
-    var description: String {
+    public var description: String {
         switch self {
         case .nw:
             "NW"

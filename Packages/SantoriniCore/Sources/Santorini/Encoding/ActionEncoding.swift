@@ -40,7 +40,7 @@ extension Placement {
     // ...
     // 24: (4, 4)
 
-    static func from(encoding: Int) -> Placement? {
+    public static func from(encoding: Int) -> Placement? {
         guard encoding >= 0 && encoding < total else {
             return nil
         }
@@ -49,7 +49,7 @@ extension Placement {
         return Position(row: row, column: column).map(Placement.init)
     }
 
-    func encoded() -> Int {
+    public func encoded() -> Int {
         position.row * 5 + position.column
     }
 }
@@ -67,7 +67,7 @@ extension Move {
     // 64: worker 2, move nw, build nw
     // ...
 
-    static func from(encoding: Int) -> Move? {
+    public static func from(encoding: Int) -> Move? {
         guard encoding >= 0 && encoding < total else {
             return nil
         }
@@ -86,7 +86,7 @@ extension Move {
         )
     }
 
-    func encoded() -> Int {
+    public func encoded() -> Int {
         let workerOffset = self.id == .one ? 0 : 64
         let moveOffset = 8 * moveDirection.rawValue
         let buildOffset = buildDirection.rawValue

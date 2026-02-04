@@ -36,6 +36,20 @@ Notes:
 - The integration test runs a tiny 1-iteration training loop and writes a checkpoint into a temporary directory. It cleans up after itself.
 - If MLX/Metal flakiness appears on your machine, re-run the failing test to confirm and report the exact failure output.
 
+## Inspect MCTS vs network priors
+
+Use the CLI to compare network priors against MCTS on the current game state:
+
+```sh
+swift run AlphaSantorini inspect --mcts-simulations 200 --top-k 10
+```
+
+Load a checkpoint and advance a few random moves for a mid-game inspection:
+
+```sh
+swift run AlphaSantorini inspect --checkpoint checkpoints/final.safetensors --advance 10 --seed 42
+```
+
 ## Build the SwiftWasm bundle (JavaScriptKit PackageToJS)
 
 From the repo root, first confirm the WASM SDK is installed:
