@@ -1,6 +1,8 @@
 .PHONY: help build run-release wasm onnx onnx-verify web-install web-build web-dev clean
 
-SWIFT ?= swift
+SWIFT ?= xcrun --toolchain $(XCODE_TOOLCHAIN) swift
+DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+XCODE_TOOLCHAIN ?= XcodeDefault
 TOOLCHAINS ?=
 PYTHON ?= python3
 NPM ?= npm
@@ -10,7 +12,7 @@ WASM_OUTPUT ?= web/public/wasm
 MODEL_OUT ?= web/public/models/santorini.onnx
 CHECKPOINT ?=
 
-SWIFT_CMD = $(if $(TOOLCHAINS),env TOOLCHAINS=$(TOOLCHAINS) $(SWIFT),$(SWIFT))
+SWIFT_CMD = $(if $(TOOLCHAINS),env TOOLCHAINS=$(TOOLCHAINS) DEVELOPER_DIR=$(DEVELOPER_DIR) $(SWIFT),env DEVELOPER_DIR=$(DEVELOPER_DIR) $(SWIFT))
 
 help:
 	@echo "Targets:"
