@@ -303,6 +303,7 @@ public class SantoriniTrainer {
                 if let winner = aiVSPlay.play(
                     player1: current,
                     player2: best,
+                    iterations: config.MCTSSimulations,
                     maxMoves: config.maxMovesPerGame
                 ) {
                     winsCurrent += (winner == .one) ? 1 : 0
@@ -314,6 +315,7 @@ public class SantoriniTrainer {
                 if let winner = aiVSPlay.play(
                     player1: best,
                     player2: current,
+                    iterations: config.MCTSSimulations,
                     maxMoves: config.maxMovesPerGame
                 ) {
                     winsCurrent += (winner == .two) ? 1 : 0

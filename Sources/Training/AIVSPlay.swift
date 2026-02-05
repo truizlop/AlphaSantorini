@@ -13,6 +13,7 @@ class AIVSPlay {
     func play(
         player1: SantoriniNet,
         player2: SantoriniNet,
+        iterations: Int,
         maxMoves: Int? = nil
     ) -> Player? {
         var state = GameState()
@@ -27,7 +28,7 @@ class AIVSPlay {
             let (action, _) = mcts(
                 rootState: state,
                 evaluator: currentNetwork,
-                iterations: 200,
+                iterations: iterations,
                 temperature: 0.0
             )
             if let action {

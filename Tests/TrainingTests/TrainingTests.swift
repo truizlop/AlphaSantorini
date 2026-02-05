@@ -129,7 +129,7 @@ final class TrainingTests: XCTestCase {
     func testAIVSPlayRespectsMaxMoves() {
         let net = SantoriniNet(hiddenDimension: 16)
         let aiPlay = AIVSPlay()
-        let result = aiPlay.play(player1: net, player2: net, maxMoves: 0)
+        let result = aiPlay.play(player1: net, player2: net, iterations: 1, maxMoves: 0)
         XCTAssertNil(result)
     }
 
