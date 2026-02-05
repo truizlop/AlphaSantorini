@@ -15,7 +15,6 @@ public struct TrainingConfig {
     public var MCTSSimulations: Int
     public var mctsBatchSize: Int
     public var noise: DirichletNoise?
-    public var maxMovesPerGame: Int?
 
     // Training
     public var batchSize: Int
@@ -38,7 +37,6 @@ public struct TrainingConfig {
         MCTSSimulations: Int = 400,
         mctsBatchSize: Int = 16,
         noise: DirichletNoise? = DirichletNoise(epsilon: 0.25, alpha: 0.3),
-        maxMovesPerGame: Int? = nil,
         batchSize: Int = 128,
         trainingStepsPerIteration: Int = 2000,
         learningRate: Float = 0.0005,
@@ -54,7 +52,6 @@ public struct TrainingConfig {
         self.MCTSSimulations = MCTSSimulations
         self.mctsBatchSize = mctsBatchSize
         self.noise = noise
-        self.maxMovesPerGame = maxMovesPerGame
         self.batchSize = batchSize
         self.trainingStepsPerIteration = trainingStepsPerIteration
         self.learningRate = learningRate

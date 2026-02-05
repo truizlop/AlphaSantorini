@@ -83,7 +83,6 @@ public class SantoriniTrainer {
         let batchSize = self.config.mctsBatchSize
         let selfPlay = self.selfPlay
         let noise = self.config.noise
-        let maxMovesPerGame = self.config.maxMovesPerGame
         let profilingEnabled = ProcessInfo.processInfo.environment["SANTORINI_PROFILE"] == "1"
         MCTSProfiler.enabled = profilingEnabled
 
@@ -94,8 +93,7 @@ public class SantoriniTrainer {
                 evaluator: model,
                 iterations: iterations,
                 noise: noise,
-                batchSize: batchSize,
-                maxMoves: maxMovesPerGame
+                batchSize: batchSize
             )
             if result.wasTruncated {
                 truncatedGames += 1
@@ -306,8 +304,7 @@ public class SantoriniTrainer {
                 if let winner = aiVSPlay.play(
                     player1: current,
                     player2: best,
-                    iterations: config.MCTSSimulations,
-                    maxMoves: config.maxMovesPerGame
+                    iterations: config.MCTSSimulations
                 ) {
                     winsCurrent += (winner == .one) ? 1 : 0
                     winsBest += (winner == .two) ? 1 : 0
@@ -318,8 +315,7 @@ public class SantoriniTrainer {
                 if let winner = aiVSPlay.play(
                     player1: best,
                     player2: current,
-                    iterations: config.MCTSSimulations,
-                    maxMoves: config.maxMovesPerGame
+                    iterations: config.MCTSSimulations
                 ) {
                     winsCurrent += (winner == .two) ? 1 : 0
                     winsBest += (winner == .one) ? 1 : 0

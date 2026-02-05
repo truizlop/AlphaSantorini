@@ -9,7 +9,7 @@ import MCTS
 struct AlphaSantorini: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "alpha-santorini",
-        subcommands: [Train.self, Inspect.self],
+        subcommands: [Train.self, Inspect.self, SelfPlayInspect.self],
         defaultSubcommand: Train.self
     )
 
@@ -115,6 +115,139 @@ struct AlphaSantorini: AsyncParsableCommand {
                 let (action, prob) = items[i]
                 print("  \(i + 1). \(action.description) \(String(format: "%.4f", prob))")
             }
+        }
+    }
+
+    struct SelfPlayInspect: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "self-play-inspect",
+            abstract: "Run one self-play game and print per-sample policy statistics."
+        )
+
+        @Option(help: "Checkpoint file to load (safetensors).")
+        var checkpoint: String?
+
+        @Option(help: "Hidden dimension for the network.")
+        var hiddenDimension: Int = 256
+
+        @Option(help: "MCTS simulations per move.")
+        var mctsSimulations: Int = 400
+
+        @Option(help: "MCTS batch size.")
+        var mctsBatchSize: Int = 16
+
+        @Flag(help: "Disable Dirichlet noise for self-play.")
+        var noNoise: Bool = false
+
+        @Option(help: "Dirichlet noise epsilon.")
+        var noiseEpsilon: Float = 0.25
+
+        @Option(help: "Dirichlet noise alpha.")
+        var noiseAlpha: Float = 0.3
+
+        @Option(help: "Optional RNG seed for deterministic self-play.")
+        var seed: UInt64?
+
+        @Option(help: "Limit printed samples (0 prints all).")
+        var maxSamples: Int = 0
+
+        func run() throws {
+            let net = SantoriniNet(hiddenDimension: hiddenDimension)
+            if let checkpoint {
+                try net.load(from: URL(filePath: checkpoint))
+            }
+
+            let noise: DirichletNoise? = noNoise ? nil : DirichletNoise(epsilon: noiseEpsilon, alpha: noiseAlpha)
+            let selfPlay = SelfPlay()
+
+            let result: SelfPlayResult
+            if let seed {
+                var rng = SeededGenerator(seed: seed)
+                result = selfPlay.runWithDiagnostics(
+                    evaluator: net,
+                    iterations: mctsSimulations,
+                    noise: noise,
+                    batchSize: mctsBatchSize,
+                    rng: &rng
+                )
+            } else {
+                result = selfPlay.runWithDiagnostics(
+                    evaluator: net,
+                    iterations: mctsSimulations,
+                    noise: noise,
+                    batchSize: mctsBatchSize
+                )
+            }
+
+            print("Self-play produced \(result.samples.count) samples (wasTruncated=\(result.wasTruncated)).")
+            if result.samples.isEmpty {
+                return
+            }
+
+            var oneHot99 = 0
+            var oneHot95 = 0
+            var meanEntropy: Float = 0
+            var meanMax: Float = 0
+            var meanNonZero: Float = 0
+
+            let limit = maxSamples > 0 ? min(maxSamples, result.samples.count) : result.samples.count
+            print("Idx | Sum    | Max    | 2nd    | NonZero | Entropy")
+            print("----+--------+--------+--------+---------+--------")
+
+            for (index, sample) in result.samples.enumerated() {
+                let probs = sample.encodedPolicy
+                let stats = policyStats(for: probs)
+
+                meanEntropy += stats.entropy
+                meanMax += stats.max
+                meanNonZero += Float(stats.nonZero)
+                if stats.max >= 0.99 { oneHot99 += 1 }
+                if stats.max >= 0.95 { oneHot95 += 1 }
+
+                if index < limit {
+                    print(String(
+                        format: "%3d | %.4f | %.4f | %.4f | %7d | %.4f",
+                        index + 1,
+                        stats.sum,
+                        stats.max,
+                        stats.second,
+                        stats.nonZero,
+                        stats.entropy
+                    ))
+                }
+            }
+
+            let count = Float(result.samples.count)
+            print("Summary:")
+            print(String(format: "  mean entropy: %.4f", meanEntropy / count))
+            print(String(format: "  mean max:     %.4f", meanMax / count))
+            print(String(format: "  mean nonZero: %.1f", meanNonZero / count))
+            print(String(format: "  max>=0.99:    %d/%d", oneHot99, result.samples.count))
+            print(String(format: "  max>=0.95:    %d/%d", oneHot95, result.samples.count))
+        }
+
+        private func policyStats(for probs: [Float]) -> (sum: Float, max: Float, second: Float, entropy: Float, nonZero: Int) {
+            var sum: Float = 0
+            var max1: Float = -Float.greatestFiniteMagnitude
+            var max2: Float = -Float.greatestFiniteMagnitude
+            var entropy: Float = 0
+            var nonZero = 0
+
+            for p in probs {
+                sum += p
+                if p > max1 {
+                    max2 = max1
+                    max1 = p
+                } else if p > max2 {
+                    max2 = p
+                }
+                if p > 1.0e-6 {
+                    nonZero += 1
+                    entropy -= p * log(p + 1.0e-12)
+                }
+            }
+
+            return (sum, max1, max2 == -Float.greatestFiniteMagnitude ? 0 : max2, entropy, nonZero)
         }
     }
 

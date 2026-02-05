@@ -30,8 +30,7 @@ public class SelfPlay: @unchecked Sendable {
             evaluator: evaluator,
             iterations: iterations,
             noise: noise,
-            batchSize: batchSize,
-            maxMoves: nil
+            batchSize: batchSize
         )
         return result.wasTruncated ? [] : result.samples
     }
@@ -40,8 +39,7 @@ public class SelfPlay: @unchecked Sendable {
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
-        batchSize: Int,
-        maxMoves: Int?
+        batchSize: Int
     ) -> SelfPlayResult {
         var rng = SystemRandomNumberGenerator()
         return runWithDiagnostics(
@@ -49,7 +47,6 @@ public class SelfPlay: @unchecked Sendable {
             iterations: iterations,
             noise: noise,
             batchSize: batchSize,
-            maxMoves: maxMoves,
             rng: &rng
         )
     }
@@ -59,7 +56,6 @@ public class SelfPlay: @unchecked Sendable {
         iterations: Int,
         noise: DirichletNoise?,
         batchSize: Int,
-        maxMoves: Int?,
         rng: inout R
     ) -> SelfPlayResult {
         var state = GameState()
@@ -68,10 +64,6 @@ public class SelfPlay: @unchecked Sendable {
         var wasTruncated = false
 
         while !state.isOver {
-            if let maxMoves, move >= maxMoves {
-                wasTruncated = true
-                break
-            }
             let (bestAction, policy) = mctsBatched(
                 rootState: state,
                 evaluator: evaluator,
