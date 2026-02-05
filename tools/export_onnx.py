@@ -13,7 +13,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("Missing dependency: safetensors. Install with: pip install safetensors") from exc
 
 
-class SantoriniNet(nn.Module):
+class SantoriniNetV1(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int):
         super().__init__()
         self.layer1 = nn.Linear(input_dim, hidden_dim)
@@ -28,6 +28,27 @@ class SantoriniNet(nn.Module):
         x = torch.relu(self.layer3(x))
         policy = torch.softmax(self.policyHead(x), dim=-1)
         value = torch.tanh(self.valueHead(x))
+        return policy, value
+
+
+class SantoriniNetV2(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int):
+        super().__init__()
+        self.layer1 = nn.Linear(input_dim, hidden_dim)
+        self.layer2 = nn.Linear(hidden_dim, hidden_dim)
+        self.layer3 = nn.Linear(hidden_dim, hidden_dim)
+        self.policyHead1 = nn.Linear(hidden_dim, hidden_dim)
+        self.policyHead2 = nn.Linear(hidden_dim, 153)
+        self.valueHead1 = nn.Linear(hidden_dim, hidden_dim)
+        self.valueHead2 = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.layer1(x))
+        x = torch.relu(self.layer2(x))
+        x = torch.relu(self.layer3(x))
+        policy = self.policyHead2(torch.relu(self.policyHead1(x)))
+        policy = torch.softmax(policy, dim=-1)
+        value = torch.tanh(self.valueHead2(torch.relu(self.valueHead1(x))))
         return policy, value
 
 
@@ -94,11 +115,18 @@ def main() -> int:
         hidden_dim = w1.shape[0]
         input_dim = w1.shape[1]
 
-    model = SantoriniNet(input_dim=input_dim, hidden_dim=hidden_dim)
+    use_v2 = bool(find_key(keys, "policyHead1.weight")) and bool(find_key(keys, "valueHead1.weight"))
+    if use_v2:
+        model = SantoriniNetV2(input_dim=input_dim, hidden_dim=hidden_dim)
+        layers = ["layer1", "layer2", "layer3", "policyHead1", "policyHead2", "valueHead1", "valueHead2"]
+    else:
+        model = SantoriniNetV1(input_dim=input_dim, hidden_dim=hidden_dim)
+        layers = ["layer1", "layer2", "layer3", "policyHead", "valueHead"]
+
     model.eval()
 
     with torch.no_grad():
-        for layer_name in ["layer1", "layer2", "layer3", "policyHead", "valueHead"]:
+        for layer_name in layers:
             w_key, b_key = key_for(layer_name)
             assign_linear(getattr(model, layer_name), tensors[w_key], tensors[b_key])
 
@@ -114,7 +142,8 @@ def main() -> int:
         opset_version=17,
     )
 
-    print(f"Exported ONNX model to {args.output} (input_dim={input_dim}, hidden_dim={hidden_dim})")
+    arch = "v2" if use_v2 else "v1"
+    print(f"Exported ONNX model to {args.output} (input_dim={input_dim}, hidden_dim={hidden_dim}, arch={arch})")
     return 0
 
 
