@@ -184,46 +184,99 @@ struct AlphaSantorini: AsyncParsableCommand {
                 return
             }
 
-            var oneHot99 = 0
-            var oneHot95 = 0
-            var meanEntropy: Float = 0
-            var meanMax: Float = 0
-            var meanNonZero: Float = 0
+            struct Aggregate {
+                var count: Int = 0
+                var sumEntropy: Float = 0
+                var sumMax: Float = 0
+                var sumSum: Float = 0
+                var sumRatio: Float = 0
+                var hot95: Int = 0
+                var hot99: Int = 0
+
+                mutating func add(stats: (sum: Float, max: Float, second: Float, entropy: Float, nonZero: Int), uniform: Float) {
+                    count += 1
+                    sumEntropy += stats.entropy
+                    sumMax += stats.max
+                    sumSum += stats.sum
+                    if uniform > 0 {
+                        sumRatio += stats.max / uniform
+                    }
+                    if stats.max >= 0.99 { hot99 += 1 }
+                    if stats.max >= 0.95 { hot95 += 1 }
+                }
+
+                func report(label: String) {
+                    guard count > 0 else {
+                        print("  \(label): no samples")
+                        return
+                    }
+                    let meanEntropy = sumEntropy / Float(count)
+                    let meanMax = sumMax / Float(count)
+                    let meanSum = sumSum / Float(count)
+                    let meanRatio = sumRatio / Float(count)
+                    print(String(format: "  %@: count=%d meanSum=%.4f meanMax=%.4f meanEntropy=%.4f meanMax/Uni=%.2f hot>=0.95=%d hot>=0.99=%d",
+                                 label, count, meanSum, meanMax, meanEntropy, meanRatio, hot95, hot99))
+                }
+            }
+
+            var aggregateAll = Aggregate()
+            var aggregateEarly = Aggregate()
+            var aggregateMid = Aggregate()
+            var aggregateLate = Aggregate()
+            var aggregatePlacement = Aggregate()
+            var aggregatePlay = Aggregate()
 
             let limit = maxSamples > 0 ? min(maxSamples, result.samples.count) : result.samples.count
-            print("Idx | Sum    | Max    | 2nd    | NonZero | Entropy")
-            print("----+--------+--------+--------+---------+--------")
+            print("Idx | Ph | Leg | Sum    | Max    | 2nd    | M/Uni | Entropy")
+            print("----+----+-----+--------+--------+--------+------+--------")
 
             for (index, sample) in result.samples.enumerated() {
                 let probs = sample.encodedPolicy
                 let stats = policyStats(for: probs)
+                let legalCount = sample.state.legalActions.count
+                let uniform = legalCount > 0 ? 1.0 / Float(legalCount) : 0
+                let phaseLabel = sample.state.phase == .placement ? "Pl" : "Mv"
+                let bucket = index * 3 / max(1, result.samples.count)
+                let ratio = uniform > 0 ? stats.max / uniform : 0
 
-                meanEntropy += stats.entropy
-                meanMax += stats.max
-                meanNonZero += Float(stats.nonZero)
-                if stats.max >= 0.99 { oneHot99 += 1 }
-                if stats.max >= 0.95 { oneHot95 += 1 }
+                aggregateAll.add(stats: stats, uniform: uniform)
+                switch bucket {
+                case 0: aggregateEarly.add(stats: stats, uniform: uniform)
+                case 1: aggregateMid.add(stats: stats, uniform: uniform)
+                default: aggregateLate.add(stats: stats, uniform: uniform)
+                }
+                if sample.state.phase == .placement {
+                    aggregatePlacement.add(stats: stats, uniform: uniform)
+                } else {
+                    aggregatePlay.add(stats: stats, uniform: uniform)
+                }
 
                 if index < limit {
                     print(String(
-                        format: "%3d | %.4f | %.4f | %.4f | %7d | %.4f",
+                        format: "%3d | %@ | %3d | %.4f | %.4f | %.4f | %4.1f | %.4f",
                         index + 1,
+                        phaseLabel,
+                        legalCount,
                         stats.sum,
                         stats.max,
                         stats.second,
-                        stats.nonZero,
+                        ratio,
                         stats.entropy
                     ))
                 }
+
+                if abs(stats.sum - 1.0) > 1e-3 {
+                    print(String(format: "⚠️ Policy sum off at sample %d (sum=%.6f).", index + 1, stats.sum))
+                }
             }
 
-            let count = Float(result.samples.count)
             print("Summary:")
-            print(String(format: "  mean entropy: %.4f", meanEntropy / count))
-            print(String(format: "  mean max:     %.4f", meanMax / count))
-            print(String(format: "  mean nonZero: %.1f", meanNonZero / count))
-            print(String(format: "  max>=0.99:    %d/%d", oneHot99, result.samples.count))
-            print(String(format: "  max>=0.95:    %d/%d", oneHot95, result.samples.count))
+            aggregateAll.report(label: "All")
+            aggregateEarly.report(label: "Early")
+            aggregateMid.report(label: "Mid")
+            aggregateLate.report(label: "Late")
+            aggregatePlacement.report(label: "Placement")
+            aggregatePlay.report(label: "Play")
         }
 
         private func policyStats(for probs: [Float]) -> (sum: Float, max: Float, second: Float, entropy: Float, nonZero: Int) {
