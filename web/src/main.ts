@@ -45,7 +45,7 @@ async function bootstrap(): Promise<void> {
   try {
     await loadModel();
   } catch (error) {
-    console.warn("ONNX model unavailable, falling back to random AI.", error);
+    console.warn("ONNX model unavailable, falling back to baseline MCTS.", error);
   }
 
   await controller.newGame();

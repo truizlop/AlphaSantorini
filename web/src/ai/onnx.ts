@@ -1,9 +1,17 @@
 import * as ort from "onnxruntime-web";
+import { ACTION_TOTAL } from "../game/actions";
 
 let session: ort.InferenceSession | null = null;
 
 export function isModelReady(): boolean {
   return session !== null;
+}
+
+export function getModelReadyStatus(): { ready: boolean; reason: string } {
+  if (session) {
+    return { ready: true, reason: "Model ready" };
+  }
+  return { ready: false, reason: "Baseline MCTS (uniform policy)" };
 }
 
 export async function loadModel(): Promise<void> {
@@ -41,7 +49,7 @@ async function hasModelFile(url: string): Promise<boolean> {
 
 export async function evaluate(encoded: Float32Array): Promise<{ policy: Float32Array; value: number }> {
   if (!session) {
-    throw new Error("ONNX session not initialized. Call loadModel() first.");
+    return { policy: new Float32Array(ACTION_TOTAL), value: 0 };
   }
   const inputTensor = new ort.Tensor("float32", encoded, [1, encoded.length]);
   const output = await session.run({ input: inputTensor });

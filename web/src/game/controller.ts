@@ -2,7 +2,7 @@ import { BoardScene, HighlightType } from "../ui/scene";
 import { wasm, StateSummary } from "../engine/wasmBridge";
 import { BOARD_SIZE, decodeAction, destination, tileKey } from "./actions";
 import { selectAction } from "../ai/mcts";
-import { isModelReady } from "../ai/onnx";
+import { getModelReadyStatus } from "../ai/onnx";
 
 export type MoveOption = {
   actionId: number;
@@ -220,9 +220,10 @@ export class GameController {
     this.turnEl.textContent = this.summary.turn === "one" ? "Player One" : "Player Two";
 
     if (this.summary.turn !== this.humanPlayer) {
-      this.statusEl.textContent = isModelReady()
-        ? "AI is making a move..."
-        : "Random AI is making a move...";
+    const modelStatus = getModelReadyStatus();
+    this.statusEl.textContent = modelStatus.ready
+      ? "AI is making a move..."
+      : "Baseline MCTS is making a move...";
     } else if (this.summary.phase === "placement") {
       this.statusEl.textContent = "Select a tile to place your worker.";
     } else if (!this.selectedWorker) {
@@ -275,27 +276,24 @@ export class GameController {
       return;
     }
     this.aiThinking = true;
-    const modelReady = isModelReady();
-    this.aiStatusEl.textContent = modelReady ? "AI thinking..." : "Random AI move...";
+    const modelStatus = getModelReadyStatus();
+    const modelReady = modelStatus.ready;
+    this.aiStatusEl.textContent = modelReady ? "AI thinking..." : modelStatus.reason;
     this.aiStatusEl.classList.add("thinking");
 
     const difficulty = this.getDifficultyConfig();
     let actionId: number | null = null;
-    if (modelReady) {
-      try {
-        const result = await selectAction(this.stateHandle, {
-          iterations: difficulty.iterations,
-          explorationConstant: 1.5,
-          temperature: difficulty.temperature,
-        });
-        actionId = result.actionId;
-      } catch (error) {
-        console.error(error);
-        this.statusEl.textContent = "AI failed to respond. Falling back to random moves.";
-        this.aiStatusEl.textContent = "Random AI";
-        actionId = this.randomLegalAction();
-      }
-    } else {
+    try {
+      const result = await selectAction(this.stateHandle, {
+        iterations: difficulty.iterations,
+        explorationConstant: 1.5,
+        temperature: difficulty.temperature,
+      });
+      actionId = result.actionId;
+    } catch (error) {
+      console.error(error);
+      this.statusEl.textContent = "AI failed to respond. Falling back to random moves.";
+      this.aiStatusEl.textContent = "Random AI";
       actionId = this.randomLegalAction();
     }
 
@@ -319,7 +317,8 @@ export class GameController {
   }
 
   private setAiReadyStatus(): void {
-    this.aiStatusEl.textContent = isModelReady() ? "AI ready" : "Random AI";
+    const modelStatus = getModelReadyStatus();
+    this.aiStatusEl.textContent = modelStatus.ready ? "AI ready" : modelStatus.reason;
     this.aiStatusEl.classList.remove("thinking");
     this.updateCancelState();
   }
@@ -400,14 +399,14 @@ export class GameController {
   private getDifficultyConfig(): { iterations: number; temperature: number } {
     switch (this.difficultyInput.value) {
       case "easy":
-        return { iterations: 80, temperature: 0.8 };
+        return { iterations: 200, temperature: 0.8 };
       case "hard":
-        return { iterations: 260, temperature: 0.2 };
+        return { iterations: 200, temperature: 0.2 };
       case "extreme":
-        return { iterations: 380, temperature: 0 };
+        return { iterations: 200, temperature: 0 };
       case "medium":
       default:
-        return { iterations: 160, temperature: 0.4 };
+        return { iterations: 200, temperature: 0.4 };
     }
   }
 }
