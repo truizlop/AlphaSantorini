@@ -159,16 +159,17 @@ public class SantoriniTrainer {
             var stepTargetMax: MLXArray?
             var stepPredMax: MLXArray?
             let (_, grad) = valueAndGrad(model: model) { net, input, targets in
-                let (policy, value) = net(input)
+                let (policyLogits, value) = net(input)
                 let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
                 if shouldLog {
                     stepTargetPolicySum = splits[0].sum(axis: 1)
-                    stepPredPolicySum = policy.sum(axis: 1)
+                    let policyProbs = softmax(policyLogits, axis: -1)
+                    stepPredPolicySum = policyProbs.sum(axis: 1)
                     let eps: Float = 1e-8
                     let logTarget = log(splits[0] + eps)
-                    let logPred = log(policy + eps)
+                    let logPred = logSoftmax(policyLogits, axis: -1)
                     stepTargetEntropy = -sum(splits[0] * logTarget, axis: 1)
-                    stepPredEntropy = -sum(policy * logPred, axis: 1)
+                    stepPredEntropy = -sum(policyProbs * logPred, axis: 1)
                     let crossEntropy = -sum(splits[0] * logPred, axis: 1)
                     if let stepTargetEntropy {
                         stepKLDivergence = crossEntropy - stepTargetEntropy
@@ -176,9 +177,9 @@ public class SantoriniTrainer {
                         stepKLDivergence = crossEntropy
                     }
                     stepTargetMax = splits[0].max(axis: 1)
-                    stepPredMax = policy.max(axis: 1)
+                    stepPredMax = policyProbs.max(axis: 1)
                 }
-                let policyLoss = self.policyLoss(predicted: policy, target: splits[0])
+                let policyLoss = self.policyLoss(logits: policyLogits, target: splits[0])
                 let valueLoss = self.valueLoss(predicted: value, target: splits[1])
                 stepPolicyLoss = policyLoss
                 stepValueLoss = valueLoss
@@ -239,11 +240,12 @@ public class SantoriniTrainer {
     }
 
     private func policyLoss(
-        predicted: MLXArray,
+        logits: MLXArray,
         target: MLXArray
     ) -> MLXArray {
-        let batchSize = max(1, predicted.shape[0])
-        return -sum(target * log(predicted + 1e-8)) / Float(batchSize)
+        let batchSize = max(1, logits.shape[0])
+        let logProbs = logSoftmax(logits, axis: -1)
+        return -sum(target * logProbs) / Float(batchSize)
     }
 
     private func valueLoss(

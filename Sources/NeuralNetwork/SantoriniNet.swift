@@ -17,29 +17,34 @@ public class SantoriniNet: Module {
     let layer1: Linear
     let layer2: Linear
     let layer3: Linear
-    let policyHead: Linear
-    let valueHead: Linear
+    let policyHead1: Linear
+    let policyHead2: Linear
+    let valueHead1: Linear
+    let valueHead2: Linear
 
     public init(hiddenDimension: Int) {
         self.layer1 = Linear(200, hiddenDimension)
         self.layer2 = Linear(hiddenDimension, hiddenDimension)
         self.layer3 = Linear(hiddenDimension, hiddenDimension)
-        self.policyHead = Linear(hiddenDimension, 153)
-        self.valueHead = Linear(hiddenDimension, 1)
+        self.policyHead1 = Linear(hiddenDimension, hiddenDimension)
+        self.policyHead2 = Linear(hiddenDimension, 153)
+        self.valueHead1 = Linear(hiddenDimension, hiddenDimension)
+        self.valueHead2 = Linear(hiddenDimension, 1)
     }
 
     public func callAsFunction(_ input: MLXArray) -> (policy: MLXArray, value: MLXArray) {
         let o1 = relu(layer1(input))
         let o2 = relu(layer2(o1))
         let o3 = relu(layer3(o2))
-        let policy = softmax(policyHead(o3), axis: -1)
-        let value = tanh(valueHead(o3))
-        return (policy: policy, value: value)
+        let policyLogits = policyHead2(relu(policyHead1(o3)))
+        let value = tanh(valueHead2(relu(valueHead1(o3))))
+        return (policy: policyLogits, value: value)
     }
 
     public func evaluate(_ input: [Float]) -> (policy: [Float], value: Float) {
         let mlxInput = MLXArray(input)
-        let (policy, value) = self(mlxInput)
+        let (policyLogits, value) = self(mlxInput)
+        let policy = softmax(policyLogits, axis: -1)
         return (policy.asArray(Float.self), value.asArray(Float.self)[0])
     }
 
@@ -47,7 +52,8 @@ public class SantoriniNet: Module {
         guard let first = inputs.first else { return ([], []) }
         let flat = inputs.flatMap { $0 }
         let mlxInput = MLXArray(flat, [inputs.count, first.count])
-        let (policy, value) = self(mlxInput)
+        let (policyLogits, value) = self(mlxInput)
+        let policy = softmax(policyLogits, axis: -1)
 
         let policyFlat = policy.asArray(Float.self)
         let valueFlat = value.asArray(Float.self)
