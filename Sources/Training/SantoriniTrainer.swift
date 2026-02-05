@@ -270,6 +270,9 @@ public class SantoriniTrainer {
             Float(0.5) // All draws
         }
 
+        print("Evaluation results: currentWins=\(result.winsCurrent), bestWins=\(result.winsBest), draws=\(result.draws), decisive=\(totalDecisive), winRate=\(String(format: "%.3f", winRate))")
+        logModelDifference(current: model, best: bestModel)
+
         if winRate >= config.promotionThreshold {
             print("✅ New network promoted! Win rate: \(winRate)")
             bestModel.copyWeights(from: model)
@@ -347,6 +350,38 @@ public class SantoriniTrainer {
     private func shouldStopEarly(currentIteration: Int) -> Bool {
         iterationsSincePromotion = currentIteration - (lastPromotionIteration ?? 0)
         return iterationsSincePromotion >= 100
+    }
+
+    private func logModelDifference(current: SantoriniNet, best: SantoriniNet) {
+        let currentParams = Dictionary(uniqueKeysWithValues: current.parameters().flattened())
+        let bestParams = Dictionary(uniqueKeysWithValues: best.parameters().flattened())
+        let keys = Set(currentParams.keys).intersection(bestParams.keys)
+        guard !keys.isEmpty else {
+            print("⚠️ Could not compare model parameters (no overlapping keys).")
+            return
+        }
+
+        var maxAbsDiff: Float = 0
+        var meanAbsDiffSum: Float = 0
+        var count: Int = 0
+
+        for key in keys {
+            guard let currentArray = currentParams[key], let bestArray = bestParams[key] else { continue }
+            let diff = abs(currentArray - bestArray)
+            let maxDiff = diff.max().item(Float.self)
+            let meanDiff = diff.mean().item(Float.self)
+            maxAbsDiff = max(maxAbsDiff, maxDiff)
+            meanAbsDiffSum += meanDiff
+            count += 1
+        }
+
+        if count > 0 {
+            let meanAbsDiff = meanAbsDiffSum / Float(count)
+            print("Model param diff: meanAbs=\(String(format: "%.6f", meanAbsDiff)), maxAbs=\(String(format: "%.6f", maxAbsDiff)) across \(count) tensors.")
+            if maxAbsDiff <= 1.0e-7 {
+                print("⚠️ Model parameters are effectively identical; evaluation will tend toward 0.5 win rate or all draws.")
+            }
+        }
     }
 
     private struct PolicyLogSnapshot {
