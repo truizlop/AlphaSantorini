@@ -15,6 +15,8 @@ public struct TrainingConfig {
     public var MCTSSimulations: Int
     public var mctsBatchSize: Int
     public var noise: DirichletNoise?
+    public var noiseAnnealIterations: Int
+    public var noiseEpsilonFloor: Float
 
     // Training
     public var batchSize: Int
@@ -33,12 +35,14 @@ public struct TrainingConfig {
 
     public init(
         hiddenDimension: Int = 256,
-        gamesPerIteration: Int = 100,
-        MCTSSimulations: Int = 400,
+        gamesPerIteration: Int = 150,
+        MCTSSimulations: Int = 500,
         mctsBatchSize: Int = 16,
         noise: DirichletNoise? = DirichletNoise(epsilon: 0.25, alpha: 0.3),
+        noiseAnnealIterations: Int = 50,
+        noiseEpsilonFloor: Float = 0,
         batchSize: Int = 128,
-        trainingStepsPerIteration: Int = 2000,
+        trainingStepsPerIteration: Int = 3000,
         learningRate: Float = 0.0005,
         replayBufferSize: Int = 25_000,
         evaluationGames: Int = 100,
@@ -52,6 +56,8 @@ public struct TrainingConfig {
         self.MCTSSimulations = MCTSSimulations
         self.mctsBatchSize = mctsBatchSize
         self.noise = noise
+        self.noiseAnnealIterations = noiseAnnealIterations
+        self.noiseEpsilonFloor = noiseEpsilonFloor
         self.batchSize = batchSize
         self.trainingStepsPerIteration = trainingStepsPerIteration
         self.learningRate = learningRate

@@ -49,7 +49,7 @@ public class SantoriniTrainer {
                 """)
 
             // Phase 1: Self-play
-            await selfPlayPhase()
+            await selfPlayPhase(iteration: iteration)
             replayBuffer.checkDiversity()
             // Phase 2: Training
             trainingPhase(iteration: iteration)
@@ -77,12 +77,12 @@ public class SantoriniTrainer {
         checkpointPhase(iteration: -1)
     }
 
-    private func selfPlayPhase() async {
+    private func selfPlayPhase(iteration: Int) async {
         print("Beginning self-play...")
         let iterations = self.config.MCTSSimulations
         let batchSize = self.config.mctsBatchSize
         let selfPlay = self.selfPlay
-        let noise = self.config.noise
+        let noise = annealedNoise(for: iteration)
         let profilingEnabled = ProcessInfo.processInfo.environment["SANTORINI_PROFILE"] == "1"
         MCTSProfiler.enabled = profilingEnabled
 
@@ -116,6 +116,18 @@ public class SantoriniTrainer {
         } else {
             print("Self-play ended (\(replayBuffer.count) training samples).")
         }
+    }
+
+    private func annealedNoise(for iteration: Int) -> DirichletNoise? {
+        guard let baseNoise = config.noise else { return nil }
+        let annealIters = max(1, config.noiseAnnealIterations)
+        guard annealIters > 1 else { return baseNoise }
+
+        let clamped = min(max(iteration - 1, 0), annealIters - 1)
+        let progress = Float(clamped) / Float(annealIters - 1)
+        let epsilon = max(config.noiseEpsilonFloor, baseNoise.epsilon * (1 - progress))
+        guard epsilon > 0 else { return nil }
+        return DirichletNoise(epsilon: epsilon, alpha: baseNoise.alpha)
     }
 
     private func trainingPhase(iteration: Int) {

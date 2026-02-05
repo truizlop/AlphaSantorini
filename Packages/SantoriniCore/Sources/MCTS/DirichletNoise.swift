@@ -8,8 +8,8 @@
 import Foundation
 
 public struct DirichletNoise: Sendable {
-    let epsilon: Float
-    let alpha: Float
+    public let epsilon: Float
+    public let alpha: Float
 
     public init(epsilon: Float, alpha: Float) {
         self.epsilon = epsilon
