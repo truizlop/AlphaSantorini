@@ -9,7 +9,7 @@ import MCTS
 struct AlphaSantorini: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "alpha-santorini",
-        subcommands: [Train.self, Inspect.self, SelfPlayInspect.self, Arena.self],
+        subcommands: [Train.self, Inspect.self, SelfPlayInspect.self, Arena.self, ArenaBaseline.self],
         defaultSubcommand: Train.self
     )
 
@@ -414,5 +414,115 @@ struct AlphaSantorini: AsyncParsableCommand {
             state = state &* 6364136223846793005 &+ 1442695040888963407
             return state
         }
+    }
+
+    struct ArenaBaseline: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "arena-baseline",
+            abstract: "Play a checkpoint against MCTS with a uniform (no-network) evaluator."
+        )
+
+        @Option(help: "Checkpoint (safetensors) for the trained network.")
+        var checkpoint: String
+
+        @Option(help: "Hidden dimension for the network.")
+        var hiddenDimension: Int = 256
+
+        @Option(help: "MCTS simulations per move.")
+        var mctsSimulations: Int = 200
+
+        @Option(help: "Number of games to play.")
+        var games: Int = 50
+
+        @Option(help: "Optional RNG seed for deterministic arena.")
+        var seed: UInt64?
+
+        func run() throws {
+            let trained = SantoriniNet(hiddenDimension: hiddenDimension)
+            try trained.load(from: URL(filePath: checkpoint))
+
+            let baseline = UniformPolicyEvaluator()
+
+            var winsTrained = 0
+            var winsBaseline = 0
+            var draws = 0
+
+            if let seed {
+                var rng = SeededGenerator(seed: seed)
+                playMatches(trained: trained, baseline: baseline, rng: &rng, winsTrained: &winsTrained, winsBaseline: &winsBaseline, draws: &draws)
+            } else {
+                var rng = SystemRandomNumberGenerator()
+                playMatches(trained: trained, baseline: baseline, rng: &rng, winsTrained: &winsTrained, winsBaseline: &winsBaseline, draws: &draws)
+            }
+
+            let decisive = winsTrained + winsBaseline
+            let winRate = decisive > 0 ? Float(winsTrained) / Float(decisive) : 0.5
+            let winRateString = String(format: "%.3f", winRate)
+            print("Arena baseline results: trained wins=\(winsTrained), baseline wins=\(winsBaseline), draws=\(draws), decisive=\(decisive), trained winrate=\(winRateString)")
+        }
+
+        private func playMatches<R: RandomNumberGenerator>(
+            trained: SantoriniNet,
+            baseline: UniformPolicyEvaluator,
+            rng: inout R,
+            winsTrained: inout Int,
+            winsBaseline: inout Int,
+            draws: inout Int
+        ) {
+            for game in 0..<games {
+                let trainedPlaysFirst = (game % 2 == 0)
+                let winner = playSingleGame(
+                    trained: trained,
+                    baseline: baseline,
+                    trainedPlaysFirst: trainedPlaysFirst,
+                    rng: &rng
+                )
+                guard let winner else {
+                    draws += 1
+                    continue
+                }
+
+                if trainedPlaysFirst {
+                    winsTrained += (winner == .one) ? 1 : 0
+                    winsBaseline += (winner == .two) ? 1 : 0
+                } else {
+                    winsTrained += (winner == .two) ? 1 : 0
+                    winsBaseline += (winner == .one) ? 1 : 0
+                }
+            }
+        }
+
+        private func playSingleGame<R: RandomNumberGenerator>(
+            trained: SantoriniNet,
+            baseline: UniformPolicyEvaluator,
+            trainedPlaysFirst: Bool,
+            rng: inout R
+        ) -> Player? {
+            var state = Santorini.GameState()
+            while !state.isOver {
+                let trainedTurn: Bool
+                if trainedPlaysFirst {
+                    trainedTurn = (state.turn == .one)
+                } else {
+                    trainedTurn = (state.turn == .two)
+                }
+
+                let (action, _) = trainedTurn
+                    ? mcts(rootState: state, evaluator: trained, iterations: mctsSimulations, temperature: 0.0, rng: &rng)
+                    : mcts(rootState: state, evaluator: baseline, iterations: mctsSimulations, temperature: 0.0, rng: &rng)
+                guard let action else { return nil }
+                state = state.applying(move: action)
+            }
+            return state.winner
+        }
+    }
+}
+
+private struct UniformPolicyEvaluator: PolicyValueNetwork {
+    typealias State = Santorini.GameState
+
+    func evaluate(state: Santorini.GameState) -> (policy: [Float], value: Float) {
+        let policy = Array(repeating: Float(0), count: Action.total)
+        return (policy, 0)
     }
 }
