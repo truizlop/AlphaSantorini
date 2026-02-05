@@ -9,7 +9,7 @@ import MCTS
 struct AlphaSantorini: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "alpha-santorini",
-        subcommands: [Train.self, Inspect.self, SelfPlayInspect.self],
+        subcommands: [Train.self, Inspect.self, SelfPlayInspect.self, Arena.self],
         defaultSubcommand: Train.self
     )
 
@@ -301,6 +301,105 @@ struct AlphaSantorini: AsyncParsableCommand {
             }
 
             return (sum, max1, max2 == -Float.greatestFiniteMagnitude ? 0 : max2, entropy, nonZero)
+        }
+    }
+
+    struct Arena: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "arena",
+            abstract: "Play two checkpoints against each other with MCTS and report win rates."
+        )
+
+        @Option(help: "Checkpoint A (safetensors).")
+        var checkpointA: String
+
+        @Option(help: "Checkpoint B (safetensors).")
+        var checkpointB: String
+
+        @Option(help: "Hidden dimension for both networks.")
+        var hiddenDimension: Int = 256
+
+        @Option(help: "MCTS simulations per move.")
+        var mctsSimulations: Int = 200
+
+        @Option(help: "Number of games to play.")
+        var games: Int = 50
+
+        @Option(help: "Optional RNG seed for deterministic arena.")
+        var seed: UInt64?
+
+        func run() throws {
+            let netA = SantoriniNet(hiddenDimension: hiddenDimension)
+            let netB = SantoriniNet(hiddenDimension: hiddenDimension)
+            try netA.load(from: URL(filePath: checkpointA))
+            try netB.load(from: URL(filePath: checkpointB))
+
+            var winsA = 0
+            var winsB = 0
+            var draws = 0
+
+            if let seed {
+                var rng = SeededGenerator(seed: seed)
+                playMatches(netA: netA, netB: netB, rng: &rng, winsA: &winsA, winsB: &winsB, draws: &draws)
+            } else {
+                var rng = SystemRandomNumberGenerator()
+                playMatches(netA: netA, netB: netB, rng: &rng, winsA: &winsA, winsB: &winsB, draws: &draws)
+            }
+
+            let decisive = winsA + winsB
+            let winRateA = decisive > 0 ? Float(winsA) / Float(decisive) : 0.5
+            print("Arena results: A wins=\(winsA), B wins=\(winsB), draws=\(draws), decisive=\(decisive), A winrate=\(String(format: "%.3f", winRateA))")
+        }
+
+        private func playMatches<R: RandomNumberGenerator>(
+            netA: SantoriniNet,
+            netB: SantoriniNet,
+            rng: inout R,
+            winsA: inout Int,
+            winsB: inout Int,
+            draws: inout Int
+        ) {
+            for game in 0..<games {
+                let aPlaysFirst = (game % 2 == 0)
+                let winner = playSingleGame(
+                    player1: aPlaysFirst ? netA : netB,
+                    player2: aPlaysFirst ? netB : netA,
+                    rng: &rng
+                )
+                guard let winner else {
+                    draws += 1
+                    continue
+                }
+
+                if aPlaysFirst {
+                    winsA += (winner == .one) ? 1 : 0
+                    winsB += (winner == .two) ? 1 : 0
+                } else {
+                    winsA += (winner == .two) ? 1 : 0
+                    winsB += (winner == .one) ? 1 : 0
+                }
+            }
+        }
+
+        private func playSingleGame<R: RandomNumberGenerator>(
+            player1: SantoriniNet,
+            player2: SantoriniNet,
+            rng: inout R
+        ) -> Player? {
+            var state = GameState()
+            while !state.isOver {
+                let net = state.turn == .one ? player1 : player2
+                let (action, _) = mcts(
+                    rootState: state,
+                    evaluator: net,
+                    iterations: mctsSimulations,
+                    temperature: 0.0,
+                    rng: &rng
+                )
+                guard let action else { return nil }
+                state = state.applying(move: action)
+            }
+            return state.winner
         }
     }
 
