@@ -22,6 +22,7 @@ public class SantoriniTrainer {
     let aiVSPlay: AIVSPlay
 
     var iterationsSincePromotion = 0
+    var lastPromotionIteration: Int? = nil
     var totalGamesPlayed = 0
     var trainingHistory: [(iteration: Int, policyLoss: Float, valueLoss: Float)] = []
 
@@ -61,8 +62,12 @@ public class SantoriniTrainer {
                 checkpointPhase(iteration: iteration)
             }
             // Early stop
-            if shouldStopEarly() {
-                print("Early stop after seeing no improvements for \(iterationsSincePromotion) iterations.")
+            if shouldStopEarly(currentIteration: iteration) {
+                if let lastPromotionIteration {
+                    print("Early stop after seeing no improvements for \(iterationsSincePromotion) iterations (last promotion at iteration \(lastPromotionIteration)).")
+                } else {
+                    print("Early stop after seeing no improvements for \(iterationsSincePromotion) iterations.")
+                }
                 break
             }
         }
@@ -272,9 +277,10 @@ public class SantoriniTrainer {
                 print("💥 Could not save best network to disk")
             }
             iterationsSincePromotion = 0
+            lastPromotionIteration = iteration
         } else {
             print("👎🏻 New network not promoted. Win rate: \(winRate)")
-            iterationsSincePromotion += config.evaluationInterval
+            iterationsSincePromotion = iteration - (lastPromotionIteration ?? 0)
         }
 
         print("Evaluation ended.")
@@ -334,8 +340,9 @@ public class SantoriniTrainer {
         }
     }
 
-    private func shouldStopEarly() -> Bool {
-        iterationsSincePromotion >= 100
+    private func shouldStopEarly(currentIteration: Int) -> Bool {
+        iterationsSincePromotion = currentIteration - (lastPromotionIteration ?? 0)
+        return iterationsSincePromotion >= 100
     }
 
     private struct PolicyLogSnapshot {
