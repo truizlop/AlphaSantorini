@@ -21,7 +21,7 @@ struct AlphaSantorini: AsyncParsableCommand {
         var checkpointDir: String?
 
         @Option(help: "Hidden dimension for the network.")
-        var hiddenDimension: Int = 256
+        var hiddenDimension: Int = 128
 
         func run() async throws {
             let checkpointURL = checkpointDir.map { URL(filePath: $0, directoryHint: .isDirectory) }
@@ -522,7 +522,15 @@ private struct UniformPolicyEvaluator: PolicyValueNetwork {
     typealias State = Santorini.GameState
 
     func evaluate(state: Santorini.GameState) -> (policy: [Float], value: Float) {
-        let policy = Array(repeating: Float(0), count: Action.total)
+        let legal = state.legalActions
+        guard !legal.isEmpty else {
+            return (Array(repeating: 0, count: Action.total), 0)
+        }
+        let uniform = 1.0 / Float(legal.count)
+        var policy = Array(repeating: Float(0), count: Action.total)
+        for action in legal {
+            policy[action.encoded()] = uniform
+        }
         return (policy, 0)
     }
 }
