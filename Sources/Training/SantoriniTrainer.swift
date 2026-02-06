@@ -11,6 +11,7 @@ import MLXNN
 import MLXOptimizers
 import NeuralNetwork
 import MCTS
+import Santorini
 
 public class SantoriniTrainer {
     let config: TrainingConfig
@@ -25,6 +26,8 @@ public class SantoriniTrainer {
     var lastPromotionIteration: Int? = nil
     var totalGamesPlayed = 0
     var trainingHistory: [(iteration: Int, policyLoss: Float, valueLoss: Float)] = []
+    private var valueEvalSet: [(state: Santorini.GameState, rolloutValue: Float)] = []
+    private let valueEvalSeed: UInt64 = 42
 
     public init(config: TrainingConfig) {
         self.config = config
@@ -83,6 +86,7 @@ public class SantoriniTrainer {
         let batchSize = self.config.mctsBatchSize
         let selfPlay = self.selfPlay
         let noise = annealedNoise(for: iteration)
+        let valueTargetStrategy = config.valueTargetStrategy
         let profilingEnabled = ProcessInfo.processInfo.environment["SANTORINI_PROFILE"] == "1"
         MCTSProfiler.enabled = profilingEnabled
 
@@ -93,7 +97,8 @@ public class SantoriniTrainer {
                 evaluator: model,
                 iterations: iterations,
                 noise: noise,
-                batchSize: batchSize
+                batchSize: batchSize,
+                valueTargetStrategy: valueTargetStrategy
             )
             if result.wasTruncated {
                 truncatedGames += 1
@@ -139,8 +144,10 @@ public class SantoriniTrainer {
         print("Beginning training...")
         var totalPolicyLoss: Float = 0.0
         var totalValueLoss: Float = 0.0
+        var totalBaselineMSE: Float = 0.0
         var lastPolicyLoss: Float = 0.0
         var lastValueLoss: Float = 0.0
+        var lastBaselineMSE: Float = 0.0
 
         var headerPrinted = false
         var lastSnapshot: PolicyLogSnapshot?
@@ -152,6 +159,15 @@ public class SantoriniTrainer {
             let encodedPolicies = batch.map { $0.encodedPolicy }
             let valuesPerPolicy = encodedPolicies[0].count
             let encodedValues = batch.map { $0.outcome }
+            if !encodedValues.isEmpty {
+                let mean = encodedValues.reduce(0, +) / Float(encodedValues.count)
+                let mse = encodedValues.reduce(Float(0)) { acc, value in
+                    let diff = value - mean
+                    return acc + diff * diff
+                } / Float(encodedValues.count)
+                totalBaselineMSE += mse
+                lastBaselineMSE = mse
+            }
 
             let states = MLXArray(encodedStates.flatMap { $0 }, [batch.count, encodedStates[0].count])
             let targetPolicies = MLXArray(encodedPolicies.flatMap { $0 }, [batch.count, encodedPolicies[0].count])
@@ -239,14 +255,156 @@ public class SantoriniTrainer {
         let steps = Float(config.trainingStepsPerIteration)
         let meanPolicyLoss = steps > 0 ? totalPolicyLoss / steps : 0
         let meanValueLoss = steps > 0 ? totalValueLoss / steps : 0
+        let meanBaselineMSE = steps > 0 ? totalBaselineMSE / steps : 0
+        let valueLossRatio = meanBaselineMSE > 0 ? meanValueLoss / meanBaselineMSE : 0
         print("""
             Training ended: policy_loss=\(String(format: "%.4f", lastPolicyLoss)) \
             (mean \(String(format: "%.4f", meanPolicyLoss))), \
             value_loss=\(String(format: "%.4f", lastValueLoss)) \
             (mean \(String(format: "%.4f", meanValueLoss)))
             """)
+        if meanBaselineMSE > 0 {
+            print(String(format: "Value baseline MSE=%.4f (last %.4f), value_loss/baseline=%.3f",
+                         meanBaselineMSE, lastBaselineMSE, valueLossRatio))
+        }
         logTrendSummary(logSnapshots)
         trainingHistory.append((iteration, meanPolicyLoss, meanValueLoss))
+
+        logValueEvaluation(iteration: iteration)
+    }
+
+    private func logValueEvaluation(iteration: Int) {
+        let interval = max(1, config.valueEvaluationInterval)
+        guard iteration % interval == 0 else { return }
+
+        if valueEvalSet.isEmpty {
+            valueEvalSet = buildValueEvalSet(
+                count: config.valueEvaluationStates,
+                playouts: config.valueEvaluationPlayouts,
+                seed: valueEvalSeed
+            )
+        }
+        guard !valueEvalSet.isEmpty else { return }
+
+        let inputs = valueEvalSet.map { $0.state.encoded() }
+        let targets = valueEvalSet.map { $0.rolloutValue }
+        let (_, predictions) = model.evaluateBatch(inputs)
+        guard predictions.count == targets.count else { return }
+
+        let corr = pearsonCorrelation(predictions, targets)
+        let mse = meanSquaredError(predictions: predictions, targets: targets)
+        let baseline = baselineMSE(outcomes: targets)
+        let ratio = baseline > 0 ? mse / baseline : 0.0
+
+        print(String(format: "Value eval: corr=%.3f mse=%.4f baseline=%.4f ratio=%.3f",
+                     corr, mse, baseline, ratio))
+    }
+
+    private func buildValueEvalSet(
+        count: Int,
+        playouts: Int,
+        seed: UInt64
+    ) -> [(state: Santorini.GameState, rolloutValue: Float)] {
+        guard count > 0 else { return [] }
+        var rng = SeededGenerator(seed: seed)
+        var samples: [Santorini.GameState] = []
+        samples.reserveCapacity(count)
+
+        while samples.count < count {
+            var state = Santorini.GameState()
+            var steps = 0
+            while !state.isOver && samples.count < count && steps < 200 {
+                samples.append(state)
+                let legal = state.legalActions
+                guard !legal.isEmpty else { break }
+                let idx = Int.random(in: 0..<legal.count, using: &rng)
+                state = state.applying(move: legal[idx])
+                steps += 1
+            }
+        }
+
+        return samples.map { state in
+            let value = rolloutValueEstimate(state: state, playouts: playouts, rng: &rng)
+            return (state, value)
+        }
+    }
+
+    private func rolloutValueEstimate(
+        state: Santorini.GameState,
+        playouts: Int,
+        rng: inout SeededGenerator
+    ) -> Float {
+        var wins = 0
+        var losses = 0
+        let perspective = state.turn
+        for _ in 0..<playouts {
+            var s = state
+            var steps = 0
+            while !s.isOver && steps < 200 {
+                let legal = s.legalActions
+                guard !legal.isEmpty else { break }
+                let idx = Int.random(in: 0..<legal.count, using: &rng)
+                s = s.applying(move: legal[idx])
+                steps += 1
+            }
+            if let winner = s.winner {
+                if winner == perspective { wins += 1 } else { losses += 1 }
+            }
+        }
+        let total = wins + losses
+        let winRate = total > 0 ? Float(wins) / Float(total) : 0.5
+        return 2 * winRate - 1
+    }
+
+    private func meanSquaredError(predictions: [Float], targets: [Float]) -> Float {
+        guard predictions.count == targets.count, !predictions.isEmpty else { return 0 }
+        let mse = zip(predictions, targets).reduce(Float(0)) { acc, pair in
+            let diff = pair.0 - pair.1
+            return acc + diff * diff
+        }
+        return mse / Float(predictions.count)
+    }
+
+    private func baselineMSE(outcomes: [Float]) -> Float {
+        guard !outcomes.isEmpty else { return 0 }
+        let mean = outcomes.reduce(0, +) / Float(outcomes.count)
+        let mse = outcomes.reduce(Float(0)) { acc, value in
+            let diff = value - mean
+            return acc + diff * diff
+        }
+        return mse / Float(outcomes.count)
+    }
+
+    private func pearsonCorrelation(_ xs: [Float], _ ys: [Float]) -> Float {
+        guard xs.count == ys.count, !xs.isEmpty else { return 0 }
+        let n = Float(xs.count)
+        let meanX = xs.reduce(0, +) / n
+        let meanY = ys.reduce(0, +) / n
+        var cov: Float = 0
+        var varX: Float = 0
+        var varY: Float = 0
+        for (x, y) in zip(xs, ys) {
+            let dx = x - meanX
+            let dy = y - meanY
+            cov += dx * dy
+            varX += dx * dx
+            varY += dy * dy
+        }
+        let denom = sqrt(varX * varY)
+        return denom > 0 ? cov / denom : 0
+    }
+
+    private struct SeededGenerator: RandomNumberGenerator {
+        private var state: UInt64
+
+        init(seed: UInt64) {
+            self.state = seed
+        }
+
+        mutating func next() -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return state
+        }
     }
 
     private func policyLoss(

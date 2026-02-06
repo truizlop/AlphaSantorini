@@ -24,13 +24,17 @@ public class SelfPlay: @unchecked Sendable {
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
-        batchSize: Int
+        batchSize: Int,
+        useTemperature: Bool = true,
+        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome
     ) -> [TrainingSample] {
         let result = runWithDiagnostics(
             evaluator: evaluator,
             iterations: iterations,
             noise: noise,
-            batchSize: batchSize
+            batchSize: batchSize,
+            useTemperature: useTemperature,
+            valueTargetStrategy: valueTargetStrategy
         )
         return result.wasTruncated ? [] : result.samples
     }
@@ -39,7 +43,9 @@ public class SelfPlay: @unchecked Sendable {
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
-        batchSize: Int
+        batchSize: Int,
+        useTemperature: Bool = true,
+        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome
     ) -> SelfPlayResult {
         var rng = SystemRandomNumberGenerator()
         return runWithDiagnostics(
@@ -47,6 +53,8 @@ public class SelfPlay: @unchecked Sendable {
             iterations: iterations,
             noise: noise,
             batchSize: batchSize,
+            useTemperature: useTemperature,
+            valueTargetStrategy: valueTargetStrategy,
             rng: &rng
         )
     }
@@ -56,27 +64,51 @@ public class SelfPlay: @unchecked Sendable {
         iterations: Int,
         noise: DirichletNoise?,
         batchSize: Int,
+        useTemperature: Bool = true,
+        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         rng: inout R
     ) -> SelfPlayResult {
         var state = GameState()
-        var history: [(Santorini.GameState, Action, Policy)] = []
+        var history: [(Santorini.GameState, Action, Policy, Float?)] = []
         var move = 0
         var wasTruncated = false
 
         while !state.isOver {
-            let (bestAction, policy) = mctsBatched(
-                rootState: state,
-                evaluator: evaluator,
-                iterations: iterations,
-                temperature: temperature(for: move, isTraining: noise != nil),
-                rng: &rng,
-                noise: noise,
-                batchSize: batchSize
-            )
+            let bestAction: Action?
+            let policy: Policy
+            let rootValue: Float?
+            switch valueTargetStrategy {
+            case .mctsRootValue:
+                let result = mctsBatchedWithRootValue(
+                    rootState: state,
+                    evaluator: evaluator,
+                    iterations: iterations,
+                    temperature: temperature(for: move, enabled: useTemperature),
+                    rng: &rng,
+                    noise: noise,
+                    batchSize: batchSize
+                )
+                bestAction = result.bestMove
+                policy = result.distribution
+                rootValue = result.rootValue
+            case .terminalOutcome:
+                let result = mctsBatched(
+                    rootState: state,
+                    evaluator: evaluator,
+                    iterations: iterations,
+                    temperature: temperature(for: move, enabled: useTemperature),
+                    rng: &rng,
+                    noise: noise,
+                    batchSize: batchSize
+                )
+                bestAction = result.bestMove
+                policy = result.distribution
+                rootValue = nil
+            }
 
             if let bestAction {
                 let normalizedPolicy = normalizePolicy(policy, move: move)
-                history.append((state, bestAction, normalizedPolicy))
+                history.append((state, bestAction, normalizedPolicy, rootValue))
                 state = state.applying(move: bestAction)
                 move += 1
             } else {
@@ -87,12 +119,36 @@ public class SelfPlay: @unchecked Sendable {
         }
 
         let terminalWinner = state.winner
-        let samples = history.map { item in
+        let samples = buildSamples(
+            from: history,
+            terminalWinner: terminalWinner,
+            valueTargetStrategy: valueTargetStrategy
+        )
+        return SelfPlayResult(samples: samples, wasTruncated: wasTruncated, moveCount: move)
+    }
+
+    func buildSamples(
+        from history: [(Santorini.GameState, Action, Policy, Float?)],
+        terminalWinner: Player?,
+        valueTargetStrategy: ValueTargetStrategy
+    ) -> [TrainingSample] {
+        history.map { item in
             let adjustedOutcome: Float
-            if let terminalWinner {
-                adjustedOutcome = terminalWinner == item.0.turn ? 1 : -1
-            } else {
-                adjustedOutcome = 0
+            switch valueTargetStrategy {
+            case .terminalOutcome:
+                if let terminalWinner {
+                    adjustedOutcome = terminalWinner == item.0.turn ? 1 : -1
+                } else {
+                    adjustedOutcome = 0
+                }
+            case .mctsRootValue:
+                if let rootValue = item.3, rootValue.isFinite {
+                    adjustedOutcome = min(1, max(-1, rootValue))
+                } else if let terminalWinner {
+                    adjustedOutcome = terminalWinner == item.0.turn ? 1 : -1
+                } else {
+                    adjustedOutcome = 0
+                }
             }
             return TrainingSample(
                 state: item.0,
@@ -101,7 +157,6 @@ public class SelfPlay: @unchecked Sendable {
                 outcome: adjustedOutcome
             )
         }
-        return SelfPlayResult(samples: samples, wasTruncated: wasTruncated, moveCount: move)
     }
 
     private func normalizePolicy(_ policy: Policy, move: Int) -> Policy {
@@ -132,9 +187,9 @@ public class SelfPlay: @unchecked Sendable {
 
     private func temperature(
         for move: Int,
-        isTraining: Bool
+        enabled: Bool
     ) -> Float {
-        guard isTraining else { return 0.0 }
+        guard enabled else { return 0.0 }
         return move < 30 ? 1.5 : 0.0
     }
 }

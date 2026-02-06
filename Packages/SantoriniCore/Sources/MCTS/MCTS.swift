@@ -92,6 +92,28 @@ public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
     )
 }
 
+public func mctsBatchedWithRootValue<State: GameState, Evaluator: BatchPolicyValueNetwork>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil,
+    batchSize: Int = 16
+) -> (bestMove: State.Move?, distribution: [State.Move: Float], rootValue: Float) where Evaluator.State == State {
+    var rng = SystemRandomNumberGenerator()
+    return mctsBatchedWithRootValue(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise,
+        batchSize: batchSize
+    )
+}
+
 public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
     rootState: State,
     evaluator: Evaluator,
@@ -102,6 +124,52 @@ public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R:
     noise: DirichletNoise? = nil,
     batchSize: Int = 16
 ) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
+    let result = runMctsBatched(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise,
+        batchSize: batchSize
+    )
+    return (result.bestMove, result.distribution)
+}
+
+public func mctsBatchedWithRootValue<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    rng: inout R,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil,
+    batchSize: Int = 16
+) -> (bestMove: State.Move?, distribution: [State.Move: Float], rootValue: Float) where Evaluator.State == State {
+    let result = runMctsBatched(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise,
+        batchSize: batchSize
+    )
+    return (result.bestMove, result.distribution, result.root.meanValue)
+}
+
+private func runMctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    rng: inout R,
+    explorationConstant: Float,
+    noise: DirichletNoise?,
+    batchSize: Int
+) -> (root: MCTSNode<State>, bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
     let root = MCTSNode(
         state: rootState,
         move: nil,
@@ -155,6 +223,7 @@ public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R:
     }
 
     return (
+        root,
         bestMove(from: root, temperature: temperature, rng: &rng),
         visitDistribution(from: root, temperature: temperature)
     )

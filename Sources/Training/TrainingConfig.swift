@@ -8,6 +8,11 @@
 import Foundation
 import MCTS
 
+public enum ValueTargetStrategy {
+    case terminalOutcome
+    case mctsRootValue
+}
+
 public struct TrainingConfig {
     // Self-play
     public var hiddenDimension: Int
@@ -17,12 +22,16 @@ public struct TrainingConfig {
     public var noise: DirichletNoise?
     public var noiseAnnealIterations: Int
     public var noiseEpsilonFloor: Float
+    public var valueTargetStrategy: ValueTargetStrategy
 
     // Training
     public var batchSize: Int
     public var trainingStepsPerIteration: Int
     public var learningRate: Float
     public var replayBufferSize: Int
+    public var valueEvaluationInterval: Int
+    public var valueEvaluationStates: Int
+    public var valueEvaluationPlayouts: Int
 
     // Evaluation
     public var evaluationGames: Int
@@ -34,20 +43,24 @@ public struct TrainingConfig {
     public var checkpointDirectory: URL
 
     public init(
-        hiddenDimension: Int = 256,
-        gamesPerIteration: Int = 150,
-        MCTSSimulations: Int = 500,
-        mctsBatchSize: Int = 16,
+        hiddenDimension: Int = 128,
+        gamesPerIteration: Int = 100,
+        MCTSSimulations: Int = 128,
+        mctsBatchSize: Int = 32,
         noise: DirichletNoise? = DirichletNoise(epsilon: 0.25, alpha: 0.3),
-        noiseAnnealIterations: Int = 50,
-        noiseEpsilonFloor: Float = 0,
+        noiseAnnealIterations: Int = 150,
+        noiseEpsilonFloor: Float = 0.05,
+        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         batchSize: Int = 128,
-        trainingStepsPerIteration: Int = 3000,
-        learningRate: Float = 0.0005,
-        replayBufferSize: Int = 25_000,
-        evaluationGames: Int = 100,
+        trainingStepsPerIteration: Int = 25,
+        learningRate: Float = 0.001,
+        replayBufferSize: Int = 50_000,
+        valueEvaluationInterval: Int = 10,
+        valueEvaluationStates: Int = 16,
+        valueEvaluationPlayouts: Int = 20,
+        evaluationGames: Int = 20,
         promotionThreshold: Float = 0.55,
-        evaluationInterval: Int = 20,
+        evaluationInterval: Int = 10,
         checkpointInterval: Int = 10,
         checkpointDirectory: URL? = nil
     ) {
@@ -58,10 +71,14 @@ public struct TrainingConfig {
         self.noise = noise
         self.noiseAnnealIterations = noiseAnnealIterations
         self.noiseEpsilonFloor = noiseEpsilonFloor
+        self.valueTargetStrategy = valueTargetStrategy
         self.batchSize = batchSize
         self.trainingStepsPerIteration = trainingStepsPerIteration
         self.learningRate = learningRate
         self.replayBufferSize = replayBufferSize
+        self.valueEvaluationInterval = valueEvaluationInterval
+        self.valueEvaluationStates = valueEvaluationStates
+        self.valueEvaluationPlayouts = valueEvaluationPlayouts
         self.evaluationGames = evaluationGames
         self.promotionThreshold = promotionThreshold
         self.evaluationInterval = evaluationInterval
