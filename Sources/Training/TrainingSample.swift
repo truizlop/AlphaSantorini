@@ -46,6 +46,19 @@ public struct TrainingSample: @unchecked Sendable {
         return encoded
     }
 
+    private static func transformPolicy(
+        _ policy: [Action: Float],
+        by symmetry: BoardSymmetry
+    ) -> [Action: Float] {
+        var transformed: [Action: Float] = [:]
+        transformed.reserveCapacity(policy.count)
+        for (action, probability) in policy {
+            let transformedAction = action.transformed(by: symmetry)
+            transformed[transformedAction, default: 0] += probability
+        }
+        return transformed
+    }
+
     private static func hashState(_ state: GameState) -> Int {
         let encoded = state.encoded()
         var hasher = Hasher()
@@ -57,5 +70,18 @@ public struct TrainingSample: @unchecked Sendable {
             }
         }
         return hasher.finalize()
+    }
+
+    func transformed(by symmetry: BoardSymmetry) -> TrainingSample {
+        TrainingSample(
+            state: state.transformed(by: symmetry),
+            action: action.transformed(by: symmetry),
+            policy: Self.transformPolicy(policy, by: symmetry),
+            outcome: outcome
+        )
+    }
+
+    func augmentedBySymmetry() -> [TrainingSample] {
+        BoardSymmetry.allCases.map { transformed(by: $0) }
     }
 }
