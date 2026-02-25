@@ -15,7 +15,7 @@ Optional:
 ## Native build
 
 ```sh
-swift build
+xcrun swift build
 ```
 
 ## Tests
@@ -23,13 +23,13 @@ swift build
 Run the full suite (core rules/MCTS + training + neural network + integration):
 
 ```sh
-swift test
+xcrun swift test
 ```
 
 Run only the core package tests (Santorini rules + MCTS) without MLX dependencies:
 
 ```sh
-swift test --package-path Packages/SantoriniCore
+xcrun swift test --package-path Packages/SantoriniCore
 ```
 
 Notes:
@@ -41,13 +41,13 @@ Notes:
 Use the CLI to compare network priors against MCTS on the current game state:
 
 ```sh
-swift run AlphaSantorini inspect --mcts-simulations 200 --top-k 10
+xcrun swift run AlphaSantorini inspect --mcts-simulations 200 --top-k 10
 ```
 
 Load a checkpoint and advance a few random moves for a mid-game inspection:
 
 ```sh
-swift run AlphaSantorini inspect --checkpoint checkpoints/final.safetensors --advance 10 --seed 42
+xcrun swift run AlphaSantorini inspect --checkpoint checkpoints/final.safetensors --advance 10 --seed 42
 ```
 
 ## Build the SwiftWasm bundle (JavaScriptKit PackageToJS)
@@ -55,7 +55,7 @@ swift run AlphaSantorini inspect --checkpoint checkpoints/final.safetensors --ad
 From the repo root, first confirm the WASM SDK is installed:
 
 ```sh
-swift sdk list
+xcrun swift sdk list
 ```
 
 If you don't see a WASM SDK in the list, install a SwiftWasm SDK/toolchain (see https://book.swiftwasm.org/getting-started/setup.html).
@@ -68,6 +68,8 @@ swift package --swift-sdk <wasm-sdk-id-from-swift-sdk-list> \
   --allow-writing-to-directory ../../web/public/wasm \
   js --product SantoriniWasm --output ../../web/public/wasm
 ```
+
+If you use `swiftly` and see `ld: unknown option: -no_warn_duplicate_libraries`, use `xcrun swift ...` (Xcode toolchain) instead of plain `swift`.
 
 This should produce:
 - `web/public/wasm/index.js`
