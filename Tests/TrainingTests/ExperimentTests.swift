@@ -6,6 +6,8 @@ import MLX
 import MLXNN
 import MLXOptimizers
 
+private typealias EncodedState = [[[Float]]]
+
 final class ExperimentTests: XCTestCase {
     func testTrainingSampleValueMapping() {
         let action = Action.from(encoding: 0)!
@@ -300,7 +302,8 @@ final class ExperimentTests: XCTestCase {
         let policyTargets = samples.map { $0.encodedPolicy }
         let valueTargets = samples.map { $0.outcome }
 
-        let obs = MLXArray(inputs.flatMap { $0 }, [inputs.count, inputs[0].count])
+        let flatInputs = inputs.flatMap { $0.flatMap { $0.flatMap { $0 } } }
+        let obs = MLXArray(flatInputs, [inputs.count, 5, 5, 9])
         let piTarget = MLXArray(policyTargets.flatMap { $0 }, [inputs.count, policyTargets[0].count])
         let zTarget = MLXArray(valueTargets, [inputs.count, 1])
         let targets = concatenated([piTarget, zTarget], axis: 1)
@@ -417,8 +420,8 @@ final class ExperimentTests: XCTestCase {
     }
 }
 
-private func makeToyDataset() -> ([[Float]], [[Float]], [Float], [Int]) {
-    var inputs: [[Float]] = []
+private func makeToyDataset() -> ([EncodedState], [[Float]], [Float], [Int]) {
+    var inputs: [EncodedState] = []
     var policyTargets: [[Float]] = []
     var valueTargets: [Float] = []
     var targetIndices: [Int] = []
@@ -447,8 +450,8 @@ private func makeToyDataset() -> ([[Float]], [[Float]], [Float], [Int]) {
     return (inputs, policyTargets, valueTargets, targetIndices)
 }
 
-private func makeTinyValueDataset() -> ([[Float]], [[Float]], [Float], [Int]) {
-    var inputs: [[Float]] = []
+private func makeTinyValueDataset() -> ([EncodedState], [[Float]], [Float], [Int]) {
+    var inputs: [EncodedState] = []
     var policyTargets: [[Float]] = []
     var valueTargets: [Float] = []
     var targetIndices: [Int] = []
@@ -639,8 +642,8 @@ private func swappedPlayersState(from state: GameState) -> GameState {
     return swapped
 }
 
-private func makeTinyPolicyDataset() -> ([[Float]], [[Float]], [Float], [Int]) {
-    var inputs: [[Float]] = []
+private func makeTinyPolicyDataset() -> ([EncodedState], [[Float]], [Float], [Int]) {
+    var inputs: [EncodedState] = []
     var policyTargets: [[Float]] = []
     var valueTargets: [Float] = []
     var targetIndices: [Int] = []
@@ -680,11 +683,12 @@ private func valueLoss(predicted: MLXArray, target: MLXArray) -> MLXArray {
 
 private func computeLosses(
     net: SantoriniNet,
-    inputs: [[Float]],
+    inputs: [EncodedState],
     policyTargets: [[Float]],
     valueTargets: [Float]
 ) -> (Float, Float) {
-    let obs = MLXArray(inputs.flatMap { $0 }, [inputs.count, inputs[0].count])
+    let flatInputs = inputs.flatMap { $0.flatMap { $0.flatMap { $0 } } }
+    let obs = MLXArray(flatInputs, [inputs.count, 5, 5, 9])
     let piTarget = MLXArray(policyTargets.flatMap { $0 }, [inputs.count, policyTargets[0].count])
     let zTarget = MLXArray(valueTargets, [inputs.count, 1])
 
@@ -698,14 +702,15 @@ private func computeLosses(
 private func train(
     net: SantoriniNet,
     optimizer: Adam,
-    inputs: [[Float]],
+    inputs: [EncodedState],
     policyTargets: [[Float]],
     valueTargets: [Float],
     steps: Int,
     policyWeight: Float,
     valueWeight: Float
 ) {
-    let obs = MLXArray(inputs.flatMap { $0 }, [inputs.count, inputs[0].count])
+    let flatInputs = inputs.flatMap { $0.flatMap { $0.flatMap { $0 } } }
+    let obs = MLXArray(flatInputs, [inputs.count, 5, 5, 9])
     let piTarget = MLXArray(policyTargets.flatMap { $0 }, [inputs.count, policyTargets[0].count])
     let zTarget = MLXArray(valueTargets, [inputs.count, 1])
     let targets = concatenated([piTarget, zTarget], axis: 1)
@@ -727,7 +732,7 @@ private func train(
 
 private func policyTop1Accuracy(
     net: SantoriniNet,
-    inputs: [[Float]],
+    inputs: [EncodedState],
     targetIndices: [Int]
 ) -> Float {
     let (policies, _) = net.evaluateBatch(inputs)
@@ -743,7 +748,7 @@ private func policyTop1Accuracy(
 
 private func policyTargetProbability(
     net: SantoriniNet,
-    inputs: [[Float]],
+    inputs: [EncodedState],
     targetIndices: [Int]
 ) -> Float {
     let (policies, _) = net.evaluateBatch(inputs)
@@ -753,7 +758,7 @@ private func policyTargetProbability(
 
 private func valueMeanAbsoluteError(
     net: SantoriniNet,
-    inputs: [[Float]],
+    inputs: [EncodedState],
     valueTargets: [Float]
 ) -> Float {
     let (_, values) = net.evaluateBatch(inputs)

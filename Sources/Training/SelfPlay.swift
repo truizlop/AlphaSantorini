@@ -11,7 +11,7 @@ import NeuralNetwork
 
 typealias Policy = [Action: Float]
 
-public struct SelfPlayResult {
+public struct SelfPlayResult: @unchecked Sendable {
     public let samples: [TrainingSample]
     public let wasTruncated: Bool
     public let moveCount: Int
@@ -21,89 +21,119 @@ public class SelfPlay: @unchecked Sendable {
     public init() {}
     
     public func run(
-        evaluator: SantoriniNet,
-        iterations: Int,
-        noise: DirichletNoise?,
-        batchSize: Int,
-        useTemperature: Bool = true,
-        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome
-    ) -> [TrainingSample] {
-        let result = runWithDiagnostics(
-            evaluator: evaluator,
-            iterations: iterations,
-            noise: noise,
-            batchSize: batchSize,
-            useTemperature: useTemperature,
-            valueTargetStrategy: valueTargetStrategy
-        )
-        return result.wasTruncated ? [] : result.samples
-    }
-
-    public func runWithDiagnostics(
-        evaluator: SantoriniNet,
-        iterations: Int,
-        noise: DirichletNoise?,
-        batchSize: Int,
-        useTemperature: Bool = true,
-        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome
-    ) -> SelfPlayResult {
-        var rng = SystemRandomNumberGenerator()
-        return runWithDiagnostics(
-            evaluator: evaluator,
-            iterations: iterations,
-            noise: noise,
-            batchSize: batchSize,
-            useTemperature: useTemperature,
-            valueTargetStrategy: valueTargetStrategy,
-            rng: &rng
-        )
-    }
-
-    public func runWithDiagnostics<R: RandomNumberGenerator>(
+        initialState: Santorini.GameState = GameState(),
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
         batchSize: Int,
         useTemperature: Bool = true,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
+        maxMoves: Int? = nil
+    ) -> [TrainingSample] {
+        let result = runWithDiagnostics(
+            initialState: initialState,
+            evaluator: evaluator,
+            iterations: iterations,
+            noise: noise,
+            batchSize: batchSize,
+            useTemperature: useTemperature,
+            valueTargetStrategy: valueTargetStrategy,
+            maxMoves: maxMoves
+        )
+        return result.wasTruncated ? [] : result.samples
+    }
+
+    public func runWithDiagnostics(
+        initialState: Santorini.GameState = GameState(),
+        evaluator: SantoriniNet,
+        iterations: Int,
+        noise: DirichletNoise?,
+        batchSize: Int,
+        useTemperature: Bool = true,
+        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
+        maxMoves: Int? = nil,
+    ) -> SelfPlayResult {
+        var rng = SystemRandomNumberGenerator()
+        return runWithDiagnostics(
+            initialState: initialState,
+            evaluator: evaluator,
+            iterations: iterations,
+            noise: noise,
+            batchSize: batchSize,
+            useTemperature: useTemperature,
+            valueTargetStrategy: valueTargetStrategy,
+            maxMoves: maxMoves,
+            rng: &rng
+        )
+    }
+
+    public func runWithDiagnostics<R: RandomNumberGenerator>(
+        initialState: Santorini.GameState = GameState(),
+        evaluator: SantoriniNet,
+        iterations: Int,
+        noise: DirichletNoise?,
+        batchSize: Int,
+        useTemperature: Bool = true,
+        valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
+        maxMoves: Int? = nil,
         rng: inout R
     ) -> SelfPlayResult {
-        var state = GameState()
+        var state = initialState
         var history: [(Santorini.GameState, Action, Policy, Float?)] = []
         var move = 0
         var wasTruncated = false
+        let totalMoves = maxMoves ?? .max
 
-        while !state.isOver {
+        _ = batchSize
+
+        func searchStep<E: PolicyValueNetwork>(
+            with mctsEvaluator: E,
+            state: Santorini.GameState,
+            move: Int
+        ) -> (bestAction: Action?, policy: Policy, rootValue: Float?) where E.State == Santorini.GameState {
+            switch valueTargetStrategy {
+            case .mctsRootValue:
+                let result = mctsWithRootValue(
+                    rootState: state,
+                    evaluator: mctsEvaluator,
+                    iterations: iterations,
+                    temperature: temperature(for: move, enabled: useTemperature),
+                    rng: &rng,
+                    noise: noise
+                )
+                return (result.bestMove, result.distribution, result.rootValue)
+            case .terminalOutcome:
+                let result = mcts(
+                    rootState: state,
+                    evaluator: mctsEvaluator,
+                    iterations: iterations,
+                    temperature: temperature(for: move, enabled: useTemperature),
+                    rng: &rng,
+                    noise: noise
+                )
+                return (result.bestMove, result.distribution, nil)
+            }
+        }
+
+        while !state.isOver && move < totalMoves {
             let bestAction: Action?
             let policy: Policy
             let rootValue: Float?
-            switch valueTargetStrategy {
-            case .mctsRootValue:
-                let result = mctsBatchedWithRootValue(
-                    rootState: state,
-                    evaluator: evaluator,
-                    iterations: iterations,
-                    temperature: temperature(for: move, enabled: useTemperature),
-                    rng: &rng,
-                    noise: noise,
-                    batchSize: batchSize
-                )
-                bestAction = result.bestMove
-                policy = result.distribution
-                rootValue = result.rootValue
-            case .terminalOutcome:
-                let result = mctsBatched(
-                    rootState: state,
-                    evaluator: evaluator,
-                    iterations: iterations,
-                    temperature: temperature(for: move, enabled: useTemperature),
-                    rng: &rng,
-                    noise: noise,
-                    batchSize: batchSize
-                )
-                bestAction = result.bestMove
-                policy = result.distribution
-                rootValue = nil
+            let legalActions = state.legalActions
+            if legalActions.count == 1, let forced = legalActions.first {
+                bestAction = forced
+                policy = [forced: 1.0]
+                if valueTargetStrategy == .mctsRootValue {
+                    let value = evaluator.evaluate(state: state).value
+                    rootValue = value.isFinite ? value : nil
+                } else {
+                    rootValue = nil
+                }
+            } else {
+                let step = searchStep(with: evaluator, state: state, move: move)
+                bestAction = step.bestAction
+                policy = step.policy
+                rootValue = step.rootValue
             }
 
             if let bestAction {
@@ -190,6 +220,6 @@ public class SelfPlay: @unchecked Sendable {
         enabled: Bool
     ) -> Float {
         guard enabled else { return 0.0 }
-        return move < 30 ? 1.5 : 0.0
+        return move < 30 ? 1.0 : 0.0
     }
 }

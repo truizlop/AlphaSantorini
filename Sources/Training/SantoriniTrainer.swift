@@ -40,6 +40,13 @@ public class SantoriniTrainer {
         self.aiVSPlay = AIVSPlay()
     }
 
+    public func loadCheckpoint(from url: URL) throws {
+        try model.load(from: url)
+        bestModel.copyWeights(from: model)
+        iterationsSincePromotion = 0
+        lastPromotionIteration = nil
+    }
+
     public func train(iterations: Int) async {
         print("Starting Santorini AlphaZero training")
 
@@ -84,42 +91,101 @@ public class SantoriniTrainer {
         print("Beginning self-play...")
         let iterations = self.config.MCTSSimulations
         let batchSize = self.config.mctsBatchSize
+        let workers = max(1, min(self.config.selfPlayWorkers, self.config.gamesPerIteration))
         let selfPlay = self.selfPlay
         let noise = annealedNoise(for: iteration)
         let valueTargetStrategy = config.valueTargetStrategy
-        let profilingEnabled = ProcessInfo.processInfo.environment["SANTORINI_PROFILE"] == "1"
-        MCTSProfiler.enabled = profilingEnabled
+        let qualityInterval = max(1, config.sampleQualityInterval)
+        let shouldReportQuality = iteration % qualityInterval == 0 && config.sampleQualitySampleCount > 0
+        print("Self-play workers: \(workers)")
 
         let start = Date().timeIntervalSince1970
         var truncatedGames = 0
-        for game in 1 ... self.config.gamesPerIteration {
-            let result = selfPlay.runWithDiagnostics(
-                evaluator: model,
-                iterations: iterations,
-                noise: noise,
-                batchSize: batchSize,
-                valueTargetStrategy: valueTargetStrategy
-            )
+        var completedGames = 0
+        var sampler = ReservoirSampler<TrainingSample>(
+            capacity: config.sampleQualitySampleCount,
+            seed: UInt64(iteration)
+        )
+        func handleResult(_ result: SelfPlayResult) {
+            completedGames += 1
             if result.wasTruncated {
                 truncatedGames += 1
             } else {
                 replayBuffer.add(result.samples)
+                if shouldReportQuality {
+                    sampler.add(contentsOf: result.samples)
+                }
             }
-            if game % 5 == 0 {
-                print("Completed self-play \(game)/\(config.gamesPerIteration)")
+            if completedGames % 5 == 0 || completedGames == config.gamesPerIteration {
+                print("Completed self-play \(completedGames)/\(config.gamesPerIteration)")
+            }
+        }
+
+        if workers == 1 {
+            for _ in 1 ... self.config.gamesPerIteration {
+                let result = selfPlay.runWithDiagnostics(
+                    evaluator: model,
+                    iterations: iterations,
+                    noise: noise,
+                    batchSize: batchSize,
+                    valueTargetStrategy: valueTargetStrategy
+                )
+                handleResult(result)
+            }
+        } else {
+            var workerModels: [SantoriniNet] = []
+            workerModels.reserveCapacity(workers)
+            for _ in 0 ..< workers {
+                let workerModel = SantoriniNet(hiddenDimension: config.hiddenDimension)
+                workerModel.copyWeights(from: model)
+                workerModels.append(workerModel)
+            }
+
+            await withTaskGroup(of: [SelfPlayResult].self) { group in
+                for workerID in 0 ..< workers {
+                    let gameIndices = stride(from: workerID, to: config.gamesPerIteration, by: workers)
+                    let gameCount = Array(gameIndices).count
+                    if gameCount == 0 { continue }
+                    let workerModel = workerModels[workerID]
+                    group.addTask {
+                        let localSelfPlay = SelfPlay()
+                        var localRNG = SeededGenerator(seed: UInt64(iteration &* 10_000 + workerID))
+                        var results: [SelfPlayResult] = []
+                        results.reserveCapacity(gameCount)
+                        for _ in 0 ..< gameCount {
+                            let result = localSelfPlay.runWithDiagnostics(
+                                evaluator: workerModel,
+                                iterations: iterations,
+                                noise: noise,
+                                batchSize: batchSize,
+                                valueTargetStrategy: valueTargetStrategy,
+                                rng: &localRNG
+                            )
+                            results.append(result)
+                        }
+                        return results
+                    }
+                }
+
+                for await workerResults in group {
+                    for result in workerResults {
+                        handleResult(result)
+                    }
+                }
             }
         }
         let end = Date().timeIntervalSince1970
         print("Self play took: \(end-start)")
-        if profilingEnabled {
-            print(MCTSProfiler.reportAndReset(prefix: "Self-play MCTS"))
-        }
 
         totalGamesPlayed += config.gamesPerIteration
         if truncatedGames > 0 {
             print("Self-play ended (\(replayBuffer.count) training samples, \(truncatedGames) truncated games).")
         } else {
             print("Self-play ended (\(replayBuffer.count) training samples).")
+        }
+
+        if shouldReportQuality {
+            logSampleQuality(iteration: iteration, samples: sampler.samples)
         }
     }
 
@@ -169,7 +235,8 @@ public class SantoriniTrainer {
                 lastBaselineMSE = mse
             }
 
-            let states = MLXArray(encodedStates.flatMap { $0 }, [batch.count, encodedStates[0].count])
+            let flatStates = encodedStates.flatMap { $0.flatMap { $0.flatMap { $0 } } }
+            let states = MLXArray(flatStates, [batch.count, 5, 5, 9])
             let targetPolicies = MLXArray(encodedPolicies.flatMap { $0 }, [batch.count, encodedPolicies[0].count])
             let targetValues = MLXArray(encodedValues, [batch.count, 1])
             let targets = concatenated([targetPolicies, targetValues], axis: 1)
@@ -300,6 +367,238 @@ public class SantoriniTrainer {
                      corr, mse, baseline, ratio))
     }
 
+    private func logSampleQuality(iteration: Int, samples: [TrainingSample]) {
+        guard !samples.isEmpty else {
+            print("Sample quality report: no samples available.")
+            return
+        }
+
+        let metrics = computeSampleQualityMetrics(samples: samples)
+        let inputs = samples.map { $0.state.encoded() }
+        let targetValues = samples.map { $0.outcome }
+        let (predPolicies, predValues) = model.evaluateBatch(inputs)
+
+        var policyKL: Float?
+        var valueCorr: Float?
+        var valueMSE: Float?
+        var valueRatio: Float?
+
+        if predPolicies.count == samples.count {
+            var klSum: Float = 0
+            for (sample, predicted) in zip(samples, predPolicies) {
+                klSum += policyKLDivergence(target: sample.encodedPolicy, predicted: predicted)
+            }
+            policyKL = klSum / Float(samples.count)
+        }
+
+        if predValues.count == samples.count {
+            let mse = meanSquaredError(predictions: predValues, targets: targetValues)
+            let baseline = baselineMSE(outcomes: targetValues)
+            valueMSE = mse
+            valueCorr = pearsonCorrelation(predValues, targetValues)
+            valueRatio = baseline > 0 ? mse / baseline : 0
+        }
+
+        print("""
+            Sample quality report (iteration \(iteration), \(metrics.sampleCount) samples):
+              Diversity: \(String(format: "%.3f", metrics.uniqueStateRatio)) (unique \(metrics.uniqueStates)/\(metrics.sampleCount))
+              Legal moves: mean \(String(format: "%.2f", metrics.meanLegalMoves)) \
+            min \(metrics.minLegalMoves) max \(metrics.maxLegalMoves)
+              Target policy sum: mean \(String(format: "%.4f", metrics.meanPolicySum)) \
+            min \(String(format: "%.4f", metrics.minPolicySum)) \
+            max \(String(format: "%.4f", metrics.maxPolicySum))
+              Target entropy: mean \(String(format: "%.3f", metrics.meanEntropy)) \
+            norm \(String(format: "%.3f", metrics.meanNormalizedEntropy)) \
+            maxP \(String(format: "%.3f", metrics.meanMaxProb)) \
+            peak×uni \(String(format: "%.2f", metrics.meanPeakRatio))
+              Policy support: mean \(String(format: "%.3f", metrics.meanSupportRatio)) of legal moves
+              Value targets: mean \(String(format: "%.3f", metrics.valueMean)) \
+            std \(String(format: "%.3f", metrics.valueStd)) \
+            min \(String(format: "%.2f", metrics.valueMin)) \
+            max \(String(format: "%.2f", metrics.valueMax)) \
+            |v|<0.1 \(String(format: "%.0f%%", metrics.fracNearZero * 100)) \
+            |v|>0.99 \(String(format: "%.0f%%", metrics.fracAbsOne * 100)) \
+            baseline \(String(format: "%.4f", metrics.baselineMSE))
+            """)
+
+        if let policyKL {
+            print(String(format: "  Policy KL(target||net): %.4f", policyKL))
+        }
+        if let valueCorr, let valueMSE, let valueRatio {
+            print(String(format: "  Value vs net: corr=%.3f mse=%.4f ratio=%.3f", valueCorr, valueMSE, valueRatio))
+        }
+
+        print("Sample quality notes:")
+        for note in sampleQualityNotes(metrics: metrics, policyKL: policyKL, valueCorr: valueCorr, valueRatio: valueRatio) {
+            print("  \(note)")
+        }
+    }
+
+    private func computeSampleQualityMetrics(samples: [TrainingSample]) -> SampleQualityMetrics {
+        let count = samples.count
+        guard count > 0 else {
+            return SampleQualityMetrics.empty
+        }
+
+        var uniqueHashes = Set<Int>()
+        uniqueHashes.reserveCapacity(count)
+
+        var legalSum: Float = 0
+        var minLegal = Int.max
+        var maxLegal = 0
+
+        var policySumTotal: Float = 0
+        var policySumMin: Float = .greatestFiniteMagnitude
+        var policySumMax: Float = -.greatestFiniteMagnitude
+
+        var entropySum: Float = 0
+        var normalizedEntropySum: Float = 0
+        var normalizedEntropyCount: Int = 0
+        var maxProbSum: Float = 0
+        var peakRatioSum: Float = 0
+        var supportRatioSum: Float = 0
+        var supportRatioCount: Int = 0
+
+        var valueSum: Float = 0
+        var valueSqSum: Float = 0
+        var valueMin: Float = .greatestFiniteMagnitude
+        var valueMax: Float = -.greatestFiniteMagnitude
+        var nearZeroCount = 0
+        var absOneCount = 0
+
+        for sample in samples {
+            uniqueHashes.insert(sample.stateHash)
+
+            let legalCount = sample.state.legalActions.count
+            legalSum += Float(legalCount)
+            minLegal = min(minLegal, legalCount)
+            maxLegal = max(maxLegal, legalCount)
+
+            let policy = sample.encodedPolicy
+            let sum = policy.reduce(0, +)
+            policySumTotal += sum
+            policySumMin = min(policySumMin, sum)
+            policySumMax = max(policySumMax, sum)
+
+            let entropy = policyEntropy(policy)
+            entropySum += entropy
+            let maxProb = policy.max() ?? 0
+            maxProbSum += maxProb
+            if legalCount > 0 {
+                if legalCount > 1 {
+                    normalizedEntropySum += entropy / logValue(Float(legalCount))
+                    normalizedEntropyCount += 1
+                }
+                let support = policy.filter { $0 > 0 }.count
+                supportRatioSum += Float(support) / Float(legalCount)
+                supportRatioCount += 1
+                peakRatioSum += maxProb * Float(legalCount)
+            }
+
+            let value = sample.outcome
+            valueSum += value
+            valueSqSum += value * value
+            valueMin = min(valueMin, value)
+            valueMax = max(valueMax, value)
+            if abs(value) <= 0.1 { nearZeroCount += 1 }
+            if abs(value) >= 0.99 { absOneCount += 1 }
+        }
+
+        let meanLegal = legalSum / Float(count)
+        let meanPolicySum = policySumTotal / Float(count)
+        let meanEntropy = entropySum / Float(count)
+        let meanNormalizedEntropy = normalizedEntropyCount > 0
+            ? normalizedEntropySum / Float(normalizedEntropyCount)
+            : 0
+        let meanMaxProb = maxProbSum / Float(count)
+        let meanPeakRatio = supportRatioCount > 0 ? peakRatioSum / Float(supportRatioCount) : 0
+        let meanSupportRatio = supportRatioCount > 0 ? supportRatioSum / Float(supportRatioCount) : 0
+
+        let valueMean = valueSum / Float(count)
+        let variance = max(0, valueSqSum / Float(count) - valueMean * valueMean)
+        let valueStd = sqrt(variance)
+
+        return SampleQualityMetrics(
+            sampleCount: count,
+            uniqueStates: uniqueHashes.count,
+            meanLegalMoves: meanLegal,
+            minLegalMoves: minLegal == Int.max ? 0 : minLegal,
+            maxLegalMoves: maxLegal,
+            meanPolicySum: meanPolicySum,
+            minPolicySum: policySumMin == .greatestFiniteMagnitude ? 0 : policySumMin,
+            maxPolicySum: policySumMax == -.greatestFiniteMagnitude ? 0 : policySumMax,
+            meanEntropy: meanEntropy,
+            meanNormalizedEntropy: meanNormalizedEntropy,
+            meanMaxProb: meanMaxProb,
+            meanPeakRatio: meanPeakRatio,
+            meanSupportRatio: meanSupportRatio,
+            valueMean: valueMean,
+            valueStd: valueStd,
+            valueMin: valueMin == .greatestFiniteMagnitude ? 0 : valueMin,
+            valueMax: valueMax == -.greatestFiniteMagnitude ? 0 : valueMax,
+            fracNearZero: Float(nearZeroCount) / Float(count),
+            fracAbsOne: Float(absOneCount) / Float(count),
+            baselineMSE: variance
+        )
+    }
+
+    private func sampleQualityNotes(
+        metrics: SampleQualityMetrics,
+        policyKL: Float?,
+        valueCorr: Float?,
+        valueRatio: Float?
+    ) -> [String] {
+        var notes: [String] = []
+
+        if metrics.uniqueStateRatio < 0.4 {
+            notes.append(String(format: "Diversity is low (%.2f). Many repeats suggest self-play is stuck or too deterministic.", metrics.uniqueStateRatio))
+        } else if metrics.uniqueStateRatio < 0.7 {
+            notes.append(String(format: "Diversity is moderate (%.2f). Some repeats are expected, but more coverage is better.", metrics.uniqueStateRatio))
+        } else {
+            notes.append(String(format: "Diversity is high (%.2f). Coverage across positions looks healthy.", metrics.uniqueStateRatio))
+        }
+
+        if metrics.meanNormalizedEntropy < 0.3 {
+            notes.append(String(format: "Policies are very sharp (norm entropy %.2f). This can mean temperature/noise is low or MCTS is overconfident.", metrics.meanNormalizedEntropy))
+        } else if metrics.meanNormalizedEntropy > 0.75 {
+            notes.append(String(format: "Policies are near-uniform (norm entropy %.2f). This suggests weak evaluations or too much noise.", metrics.meanNormalizedEntropy))
+        } else {
+            notes.append(String(format: "Policies are moderately peaked (norm entropy %.2f). Search has a meaningful preference without collapsing.", metrics.meanNormalizedEntropy))
+        }
+
+        if metrics.valueStd < 0.2 || metrics.fracNearZero > 0.6 {
+            notes.append(String(format: "Value targets are mostly near 0 (std %.2f, |v|<0.1 %.0f%%). This is a weak learning signal.", metrics.valueStd, metrics.fracNearZero * 100))
+        } else {
+            notes.append(String(format: "Value targets show spread (std %.2f, |v|<0.1 %.0f%%). There is usable signal for learning.", metrics.valueStd, metrics.fracNearZero * 100))
+        }
+
+        if metrics.meanSupportRatio < 0.2 {
+            notes.append(String(format: "Only %.0f%% of legal moves have non-zero target probability. Temperature=0 or very low visits may be over-pruning.", metrics.meanSupportRatio * 100))
+        }
+
+        if let policyKL {
+            if policyKL < 0.05 {
+                notes.append(String(format: "Policy KL %.3f is very low. MCTS targets are close to the network prior, limiting training signal.", policyKL))
+            } else if policyKL > 1.0 {
+                notes.append(String(format: "Policy KL %.3f is high. Targets differ a lot from the net, which can be good early but may indicate noisy search.", policyKL))
+            } else {
+                notes.append(String(format: "Policy KL %.3f indicates MCTS is improving on the net without being wildly off.", policyKL))
+            }
+        }
+
+        if let valueCorr, let valueRatio {
+            if valueRatio > 0.95 || abs(valueCorr) < 0.1 {
+                notes.append(String(format: "Value corr %.2f and ratio %.2f show the net is near baseline on these targets (expected early).", valueCorr, valueRatio))
+            } else if valueRatio < 0.8 || valueCorr > 0.3 {
+                notes.append(String(format: "Value corr %.2f and ratio %.2f suggest the net is learning these targets.", valueCorr, valueRatio))
+            } else {
+                notes.append(String(format: "Value corr %.2f and ratio %.2f indicate partial alignment with targets.", valueCorr, valueRatio))
+            }
+        }
+
+        return notes
+    }
+
     private func buildValueEvalSet(
         count: Int,
         playouts: Int,
@@ -392,6 +691,113 @@ public class SantoriniTrainer {
         }
         let denom = sqrt(varX * varY)
         return denom > 0 ? cov / denom : 0
+    }
+
+    private func policyEntropy(_ policy: [Float]) -> Float {
+        var entropy: Float = 0
+        for p in policy where p > 0 {
+            entropy -= p * logValue(p)
+        }
+        return entropy
+    }
+
+    private func policyKLDivergence(target: [Float], predicted: [Float]) -> Float {
+        let eps: Float = 1e-8
+        let count = min(target.count, predicted.count)
+        var kl: Float = 0
+        for i in 0..<count {
+            let t = target[i]
+            guard t > 0 else { continue }
+            let p = max(predicted[i], eps)
+            kl += t * (logValue(t + eps) - logValue(p))
+        }
+        return kl
+    }
+
+    private func logValue(_ value: Float) -> Float {
+        Float(log(Double(value)))
+    }
+
+    private struct SampleQualityMetrics {
+        let sampleCount: Int
+        let uniqueStates: Int
+        let meanLegalMoves: Float
+        let minLegalMoves: Int
+        let maxLegalMoves: Int
+        let meanPolicySum: Float
+        let minPolicySum: Float
+        let maxPolicySum: Float
+        let meanEntropy: Float
+        let meanNormalizedEntropy: Float
+        let meanMaxProb: Float
+        let meanPeakRatio: Float
+        let meanSupportRatio: Float
+        let valueMean: Float
+        let valueStd: Float
+        let valueMin: Float
+        let valueMax: Float
+        let fracNearZero: Float
+        let fracAbsOne: Float
+        let baselineMSE: Float
+
+        var uniqueStateRatio: Float {
+            guard sampleCount > 0 else { return 0 }
+            return Float(uniqueStates) / Float(sampleCount)
+        }
+
+        static let empty = SampleQualityMetrics(
+            sampleCount: 0,
+            uniqueStates: 0,
+            meanLegalMoves: 0,
+            minLegalMoves: 0,
+            maxLegalMoves: 0,
+            meanPolicySum: 0,
+            minPolicySum: 0,
+            maxPolicySum: 0,
+            meanEntropy: 0,
+            meanNormalizedEntropy: 0,
+            meanMaxProb: 0,
+            meanPeakRatio: 0,
+            meanSupportRatio: 0,
+            valueMean: 0,
+            valueStd: 0,
+            valueMin: 0,
+            valueMax: 0,
+            fracNearZero: 0,
+            fracAbsOne: 0,
+            baselineMSE: 0
+        )
+    }
+
+    private struct ReservoirSampler<T> {
+        private(set) var samples: [T] = []
+        private let capacity: Int
+        private var seen: Int = 0
+        private var rng: SeededGenerator
+
+        init(capacity: Int, seed: UInt64) {
+            self.capacity = max(0, capacity)
+            self.rng = SeededGenerator(seed: seed)
+        }
+
+        mutating func add(contentsOf newSamples: [T]) {
+            for sample in newSamples {
+                add(sample)
+            }
+        }
+
+        mutating func add(_ sample: T) {
+            guard capacity > 0 else { return }
+            seen += 1
+            if samples.count < capacity {
+                samples.append(sample)
+                return
+            }
+            let index = Int.random(in: 0..<seen, using: &rng)
+            if index < capacity {
+                samples[index] = sample
+            }
+        }
     }
 
     private struct SeededGenerator: RandomNumberGenerator {

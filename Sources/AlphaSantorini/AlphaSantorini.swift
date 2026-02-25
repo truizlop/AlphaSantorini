@@ -21,12 +21,112 @@ struct AlphaSantorini: AsyncParsableCommand {
         var checkpointDir: String?
 
         @Option(help: "Hidden dimension for the network.")
-        var hiddenDimension: Int = 128
+        var hiddenDimension: Int = 256
+
+        @Option(help: "Resume training from a checkpoint (safetensors).")
+        var resumeCheckpoint: String?
+
+        @Option(help: "Games per iteration.")
+        var gamesPerIteration: Int = 100
+
+        @Option(help: "MCTS simulations per move.")
+        var mctsSimulations: Int = 256
+
+        @Option(help: "MCTS batch size.")
+        var mctsBatchSize: Int = 32
+
+        @Option(help: "Number of concurrent self-play workers.")
+        var selfPlayWorkers: Int = 1
+
+        @Option(help: "Training steps per iteration.")
+        var trainingStepsPerIteration: Int = 100
+
+        @Option(help: "Training batch size.")
+        var batchSize: Int = 128
+
+        @Option(help: "Learning rate.")
+        var learningRate: Float = 0.001
+
+        @Option(help: "Replay buffer size.")
+        var replayBufferSize: Int = 100_000
+
+        @Flag(help: "Disable Dirichlet noise.")
+        var noNoise: Bool = false
+
+        @Option(help: "Dirichlet noise epsilon.")
+        var noiseEpsilon: Float = 0.25
+
+        @Option(help: "Dirichlet noise alpha.")
+        var noiseAlpha: Float = 0.3
+
+        @Option(help: "Noise anneal iterations.")
+        var noiseAnnealIterations: Int = 150
+
+        @Option(help: "Noise epsilon floor.")
+        var noiseEpsilonFloor: Float = 0.05
+
+        @Option(help: "Value target strategy: terminal or mcts.")
+        var valueTargetStrategy: ValueTargetChoice = .terminal
+
+        @Option(help: "Value evaluation interval.")
+        var valueEvaluationInterval: Int = 10
+
+        @Option(help: "Value evaluation states.")
+        var valueEvaluationStates: Int = 16
+
+        @Option(help: "Value evaluation playouts.")
+        var valueEvaluationPlayouts: Int = 20
+
+        @Option(help: "Sample quality report interval.")
+        var sampleQualityInterval: Int = 1
+
+        @Option(help: "Sample quality report sample count.")
+        var sampleQualitySampleCount: Int = 256
+
+        @Option(help: "Evaluation games.")
+        var evaluationGames: Int = 20
+
+        @Option(help: "Promotion threshold.")
+        var promotionThreshold: Float = 0.55
+
+        @Option(help: "Evaluation interval.")
+        var evaluationInterval: Int = 10
+
+        @Option(help: "Checkpoint interval.")
+        var checkpointInterval: Int = 10
+
+        enum ValueTargetChoice: String, ExpressibleByArgument {
+            case terminal
+            case mcts
+        }
 
         func run() async throws {
             let checkpointURL = checkpointDir.map { URL(filePath: $0, directoryHint: .isDirectory) }
+            let noise: DirichletNoise? = noNoise ? nil : DirichletNoise(epsilon: noiseEpsilon, alpha: noiseAlpha)
+            let valueStrategy: ValueTargetStrategy = valueTargetStrategy == .mcts ? .mctsRootValue : .terminalOutcome
             let config = TrainingConfig(
                 hiddenDimension: hiddenDimension,
+                gamesPerIteration: gamesPerIteration,
+                MCTSSimulations: mctsSimulations,
+                mctsBatchSize: mctsBatchSize,
+                selfPlayWorkers: selfPlayWorkers,
+                noise: noise,
+                noiseAnnealIterations: noiseAnnealIterations,
+                noiseEpsilonFloor: noiseEpsilonFloor,
+                valueTargetStrategy: valueStrategy,
+                batchSize: batchSize,
+                trainingStepsPerIteration: trainingStepsPerIteration,
+                learningRate: learningRate,
+                replayBufferSize: replayBufferSize,
+                valueEvaluationInterval: valueEvaluationInterval,
+                valueEvaluationStates: valueEvaluationStates,
+                valueEvaluationPlayouts: valueEvaluationPlayouts,
+                sampleQualityInterval: sampleQualityInterval,
+                sampleQualitySampleCount: sampleQualitySampleCount,
+                evaluationGames: evaluationGames,
+                promotionThreshold: promotionThreshold,
+                evaluationInterval: evaluationInterval,
+                checkpointInterval: checkpointInterval,
                 checkpointDirectory: checkpointURL
             )
             try? FileManager.default.createDirectory(
@@ -34,6 +134,9 @@ struct AlphaSantorini: AsyncParsableCommand {
                 withIntermediateDirectories: true
             )
             let trainer = SantoriniTrainer(config: config)
+            if let resumeCheckpoint {
+                try trainer.loadCheckpoint(from: URL(filePath: resumeCheckpoint))
+            }
             await trainer.train(iterations: iterations)
         }
     }
@@ -127,9 +230,6 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Checkpoint file to load (safetensors).")
         var checkpoint: String?
 
-        @Option(help: "Hidden dimension for the network.")
-        var hiddenDimension: Int = 256
-
         @Option(help: "MCTS simulations per move.")
         var mctsSimulations: Int = 400
 
@@ -152,7 +252,7 @@ struct AlphaSantorini: AsyncParsableCommand {
         var maxSamples: Int = 0
 
         func run() throws {
-            let net = SantoriniNet(hiddenDimension: hiddenDimension)
+            let net = SantoriniNet()
             if let checkpoint {
                 try net.load(from: URL(filePath: checkpoint))
             }
@@ -437,6 +537,9 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Optional RNG seed for deterministic arena.")
         var seed: UInt64?
 
+        @Flag(help: "Use policy-only evaluator for the trained network (value=0).")
+        var policyOnly: Bool = false
+
         func run() throws {
             let trained = SantoriniNet(hiddenDimension: hiddenDimension)
             try trained.load(from: URL(filePath: checkpoint))
@@ -449,10 +552,26 @@ struct AlphaSantorini: AsyncParsableCommand {
 
             if let seed {
                 var rng = SeededGenerator(seed: seed)
-                playMatches(trained: trained, baseline: baseline, rng: &rng, winsTrained: &winsTrained, winsBaseline: &winsBaseline, draws: &draws)
+                playMatches(
+                    trained: trained,
+                    baseline: baseline,
+                    policyOnly: policyOnly,
+                    rng: &rng,
+                    winsTrained: &winsTrained,
+                    winsBaseline: &winsBaseline,
+                    draws: &draws
+                )
             } else {
                 var rng = SystemRandomNumberGenerator()
-                playMatches(trained: trained, baseline: baseline, rng: &rng, winsTrained: &winsTrained, winsBaseline: &winsBaseline, draws: &draws)
+                playMatches(
+                    trained: trained,
+                    baseline: baseline,
+                    policyOnly: policyOnly,
+                    rng: &rng,
+                    winsTrained: &winsTrained,
+                    winsBaseline: &winsBaseline,
+                    draws: &draws
+                )
             }
 
             let decisive = winsTrained + winsBaseline
@@ -464,6 +583,7 @@ struct AlphaSantorini: AsyncParsableCommand {
         private func playMatches<R: RandomNumberGenerator>(
             trained: SantoriniNet,
             baseline: UniformPolicyEvaluator,
+            policyOnly: Bool,
             rng: inout R,
             winsTrained: inout Int,
             winsBaseline: inout Int,
@@ -475,6 +595,7 @@ struct AlphaSantorini: AsyncParsableCommand {
                     trained: trained,
                     baseline: baseline,
                     trainedPlaysFirst: trainedPlaysFirst,
+                    policyOnly: policyOnly,
                     rng: &rng
                 )
                 guard let winner else {
@@ -496,6 +617,7 @@ struct AlphaSantorini: AsyncParsableCommand {
             trained: SantoriniNet,
             baseline: UniformPolicyEvaluator,
             trainedPlaysFirst: Bool,
+            policyOnly: Bool,
             rng: inout R
         ) -> Player? {
             var state = Santorini.GameState()
@@ -507,14 +629,49 @@ struct AlphaSantorini: AsyncParsableCommand {
                     trainedTurn = (state.turn == .two)
                 }
 
-                let (action, _) = trainedTurn
-                    ? mcts(rootState: state, evaluator: trained, iterations: mctsSimulations, temperature: 0.0, rng: &rng)
-                    : mcts(rootState: state, evaluator: baseline, iterations: mctsSimulations, temperature: 0.0, rng: &rng)
+                let (action, _) = if trainedTurn {
+                    if policyOnly {
+                        mcts(
+                            rootState: state,
+                            evaluator: PolicyOnlyEvaluator(net: trained),
+                            iterations: mctsSimulations,
+                            temperature: 0.0,
+                            rng: &rng
+                        )
+                    } else {
+                        mcts(
+                            rootState: state,
+                            evaluator: trained,
+                            iterations: mctsSimulations,
+                            temperature: 0.0,
+                            rng: &rng
+                        )
+                    }
+                } else {
+                    mcts(
+                        rootState: state,
+                        evaluator: baseline,
+                        iterations: mctsSimulations,
+                        temperature: 0.0,
+                        rng: &rng
+                    )
+                }
                 guard let action else { return nil }
                 state = state.applying(move: action)
             }
             return state.winner
         }
+    }
+}
+
+private struct PolicyOnlyEvaluator: PolicyValueNetwork {
+    typealias State = Santorini.GameState
+
+    let net: SantoriniNet
+
+    func evaluate(state: Santorini.GameState) -> (policy: [Float], value: Float) {
+        let (policy, _) = net.evaluate(state.encoded())
+        return (policy, 0)
     }
 }
 

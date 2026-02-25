@@ -4,8 +4,14 @@ import MLXNN
 @testable import NeuralNetwork
 
 final class NeuralNetworkTests: XCTestCase {
-    private func makeInput() -> [Float] {
-        Array(repeating: 0.1, count: 200)
+    private func makeInput() -> [[[Float]]] {
+        Array(
+            repeating: Array(
+                repeating: Array(repeating: 0.1, count: 9),
+                count: 5
+            ),
+            count: 5
+        )
     }
 
     func testOutputShapesAndRanges() {

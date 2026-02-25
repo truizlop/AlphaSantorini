@@ -13,14 +13,6 @@ extension SantoriniNet: PolicyValueNetwork {
     public typealias State = Santorini.GameState
 
     public func evaluate(state: Santorini.GameState) -> (policy: [Float], value: Float) {
-        let input = state.encoded()
-        return evaluate(input)
-    }
-}
-
-extension SantoriniNet: BatchPolicyValueNetwork {
-    public func evaluate(states: [Santorini.GameState]) -> (policies: [[Float]], values: [Float]) {
-        let inputs = states.map { $0.encoded() }
-        return evaluateBatch(inputs)
+        evaluate(state.encoded())
     }
 }

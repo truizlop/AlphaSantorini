@@ -49,8 +49,12 @@ public struct TrainingSample: @unchecked Sendable {
     private static func hashState(_ state: GameState) -> Int {
         let encoded = state.encoded()
         var hasher = Hasher()
-        for value in encoded {
-            hasher.combine(value.bitPattern)
+        for row in encoded {
+            for cell in row {
+                for value in cell {
+                    hasher.combine(value.bitPattern)
+                }
+            }
         }
         return hasher.finalize()
     }

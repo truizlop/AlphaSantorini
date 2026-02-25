@@ -120,7 +120,8 @@ enum SantoriniWasm {
                   let state = store.state(for: Int(handle)) else {
                 return [Double]().jsValue
             }
-            return state.encoded().map(Double.init).jsValue
+            let flat = state.encoded().flatMap { $0.flatMap { $0 } }.map(Double.init)
+            return flat.jsValue
         }
 
         JSObject.global.SantoriniWasm = exports.jsValue

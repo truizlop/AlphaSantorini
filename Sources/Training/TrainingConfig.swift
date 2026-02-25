@@ -8,7 +8,7 @@
 import Foundation
 import MCTS
 
-public enum ValueTargetStrategy {
+public enum ValueTargetStrategy: Sendable {
     case terminalOutcome
     case mctsRootValue
 }
@@ -19,6 +19,7 @@ public struct TrainingConfig {
     public var gamesPerIteration: Int
     public var MCTSSimulations: Int
     public var mctsBatchSize: Int
+    public var selfPlayWorkers: Int
     public var noise: DirichletNoise?
     public var noiseAnnealIterations: Int
     public var noiseEpsilonFloor: Float
@@ -32,6 +33,8 @@ public struct TrainingConfig {
     public var valueEvaluationInterval: Int
     public var valueEvaluationStates: Int
     public var valueEvaluationPlayouts: Int
+    public var sampleQualityInterval: Int
+    public var sampleQualitySampleCount: Int
 
     // Evaluation
     public var evaluationGames: Int
@@ -43,21 +46,24 @@ public struct TrainingConfig {
     public var checkpointDirectory: URL
 
     public init(
-        hiddenDimension: Int = 128,
+        hiddenDimension: Int = 256,
         gamesPerIteration: Int = 100,
-        MCTSSimulations: Int = 128,
+        MCTSSimulations: Int = 256,
         mctsBatchSize: Int = 32,
+        selfPlayWorkers: Int = 1,
         noise: DirichletNoise? = DirichletNoise(epsilon: 0.25, alpha: 0.3),
         noiseAnnealIterations: Int = 150,
         noiseEpsilonFloor: Float = 0.05,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         batchSize: Int = 128,
-        trainingStepsPerIteration: Int = 25,
+        trainingStepsPerIteration: Int = 100,
         learningRate: Float = 0.001,
-        replayBufferSize: Int = 50_000,
+        replayBufferSize: Int = 100_000,
         valueEvaluationInterval: Int = 10,
         valueEvaluationStates: Int = 16,
         valueEvaluationPlayouts: Int = 20,
+        sampleQualityInterval: Int = 1,
+        sampleQualitySampleCount: Int = 256,
         evaluationGames: Int = 20,
         promotionThreshold: Float = 0.55,
         evaluationInterval: Int = 10,
@@ -68,6 +74,7 @@ public struct TrainingConfig {
         self.gamesPerIteration = gamesPerIteration
         self.MCTSSimulations = MCTSSimulations
         self.mctsBatchSize = mctsBatchSize
+        self.selfPlayWorkers = max(1, selfPlayWorkers)
         self.noise = noise
         self.noiseAnnealIterations = noiseAnnealIterations
         self.noiseEpsilonFloor = noiseEpsilonFloor
@@ -79,6 +86,8 @@ public struct TrainingConfig {
         self.valueEvaluationInterval = valueEvaluationInterval
         self.valueEvaluationStates = valueEvaluationStates
         self.valueEvaluationPlayouts = valueEvaluationPlayouts
+        self.sampleQualityInterval = sampleQualityInterval
+        self.sampleQualitySampleCount = sampleQualitySampleCount
         self.evaluationGames = evaluationGames
         self.promotionThreshold = promotionThreshold
         self.evaluationInterval = evaluationInterval
