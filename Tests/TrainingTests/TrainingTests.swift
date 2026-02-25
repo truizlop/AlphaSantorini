@@ -67,17 +67,43 @@ final class TrainingTests: XCTestCase {
         XCTAssertNotEqual(sample.stateHash, oldHash)
     }
 
+    func testTrainingSampleSymmetryAugmentationProducesEightTransformedSamples() {
+        var state = GameState()
+        if case let .placement(existing) = Action.from(encoding: 8)! { // (1,3)
+            state.placement(existing)
+        }
+        let action = Action.from(encoding: 1)! // placement at (0,1), full 8-way orbit
+        let sample = TrainingSample(
+            state: state,
+            action: action,
+            policy: [action: 1.0],
+            outcome: -1
+        )
+
+        let augmented = sample.augmentedBySymmetry()
+        XCTAssertEqual(augmented.count, 8)
+        XCTAssertEqual(Set(augmented.map { $0.action.encoded() }).count, 8)
+
+        for transformed in augmented {
+            XCTAssertEqual(transformed.outcome, sample.outcome)
+            let sum = transformed.encodedPolicy.reduce(0, +)
+            XCTAssertEqual(sum, 1.0, accuracy: 1e-6)
+            XCTAssertEqual(transformed.encodedPolicy[transformed.action.encoded()], 1.0, accuracy: 1e-6)
+            XCTAssertTrue(transformed.state.legalActions.contains(transformed.action))
+        }
+    }
+
     func testSelfPlayProducesSamples() {
-        let net = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
         let selfPlay = SelfPlay()
-        let samples = selfPlay.run(evaluator: net, iterations: 1, noise: nil, batchSize: 1)
+        let samples = selfPlay.run(evaluator: net, iterations: 1, noise: nil)
         XCTAssertFalse(samples.isEmpty)
         XCTAssertTrue(samples.allSatisfy { $0.encodedPolicy.count == Action.total })
         XCTAssertTrue(samples.allSatisfy { [-1.0, 0.0, 1.0].contains($0.outcome) })
     }
 
     func testSelfPlayDeterministicWithSeed() {
-        let net = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
         let selfPlay = SelfPlay()
         let noise = DirichletNoise(epsilon: 0.25, alpha: 0.3)
 
@@ -88,14 +114,12 @@ final class TrainingTests: XCTestCase {
             evaluator: net,
             iterations: 4,
             noise: noise,
-            batchSize: 2,
             rng: &rng1
         )
         let result2 = selfPlay.runWithDiagnostics(
             evaluator: net,
             iterations: 4,
             noise: noise,
-            batchSize: 2,
             rng: &rng2
         )
 
@@ -113,10 +137,8 @@ final class TrainingTests: XCTestCase {
     func testTrainingConfigCustomValues() {
         let tempDir = URL(filePath: NSTemporaryDirectory()).appending(path: "santorini_tests")
         let config = TrainingConfig(
-            hiddenDimension: 32,
             gamesPerIteration: 1,
             MCTSSimulations: 1,
-            mctsBatchSize: 1,
             noise: nil,
             batchSize: 2,
             trainingStepsPerIteration: 1,
@@ -128,9 +150,9 @@ final class TrainingTests: XCTestCase {
             checkpointInterval: 100,
             checkpointDirectory: tempDir
         )
-        XCTAssertEqual(config.hiddenDimension, 32)
         XCTAssertEqual(config.gamesPerIteration, 1)
         XCTAssertEqual(config.checkpointDirectory, tempDir)
         XCTAssertNil(config.noise)
+        XCTAssertTrue(config.symmetryAugmentation)
     }
 }

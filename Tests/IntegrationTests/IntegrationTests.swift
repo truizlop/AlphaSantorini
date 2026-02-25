@@ -7,10 +7,8 @@ final class IntegrationTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         let config = TrainingConfig(
-            hiddenDimension: 16,
             gamesPerIteration: 1,
             MCTSSimulations: 1,
-            mctsBatchSize: 1,
             noise: nil,
             batchSize: 2,
             trainingStepsPerIteration: 1,

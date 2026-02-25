@@ -31,9 +31,11 @@ public class SantoriniTrainer {
 
     public init(config: TrainingConfig) {
         self.config = config
-        self.model = SantoriniNet(hiddenDimension: config.hiddenDimension)
-        self.bestModel = SantoriniNet(hiddenDimension: config.hiddenDimension)
+        self.model = SantoriniNet()
+        self.bestModel = SantoriniNet()
         bestModel.copyWeights(from: model)
+        model.train(false)
+        bestModel.train(false)
         self.optimizer = Adam(learningRate: config.learningRate)
         self.replayBuffer = ReplayBuffer(maxSize: config.replayBufferSize)
         self.selfPlay = SelfPlay()
@@ -43,12 +45,16 @@ public class SantoriniTrainer {
     public func loadCheckpoint(from url: URL) throws {
         try model.load(from: url)
         bestModel.copyWeights(from: model)
+        model.train(false)
+        bestModel.train(false)
         iterationsSincePromotion = 0
         lastPromotionIteration = nil
     }
 
     public func train(iterations: Int) async {
         print("Starting Santorini AlphaZero training")
+        model.train(false)
+        bestModel.train(false)
 
         for iteration in 1 ... iterations {
             print("""
@@ -56,10 +62,10 @@ public class SantoriniTrainer {
                 ============================================
                 Iteration \(iteration)
                 ============================================
-                """)
+            """)
 
             // Phase 1: Self-play
-            await selfPlayPhase(iteration: iteration)
+            selfPlayPhase(iteration: iteration)
             replayBuffer.checkDiversity()
             // Phase 2: Training
             trainingPhase(iteration: iteration)
@@ -87,17 +93,15 @@ public class SantoriniTrainer {
         checkpointPhase(iteration: -1)
     }
 
-    private func selfPlayPhase(iteration: Int) async {
+    private func selfPlayPhase(iteration: Int) {
         print("Beginning self-play...")
+        model.train(false)
         let iterations = self.config.MCTSSimulations
-        let batchSize = self.config.mctsBatchSize
-        let workers = max(1, min(self.config.selfPlayWorkers, self.config.gamesPerIteration))
         let selfPlay = self.selfPlay
         let noise = annealedNoise(for: iteration)
         let valueTargetStrategy = config.valueTargetStrategy
         let qualityInterval = max(1, config.sampleQualityInterval)
         let shouldReportQuality = iteration % qualityInterval == 0 && config.sampleQualitySampleCount > 0
-        print("Self-play workers: \(workers)")
 
         let start = Date().timeIntervalSince1970
         var truncatedGames = 0
@@ -121,58 +125,14 @@ public class SantoriniTrainer {
             }
         }
 
-        if workers == 1 {
-            for _ in 1 ... self.config.gamesPerIteration {
-                let result = selfPlay.runWithDiagnostics(
-                    evaluator: model,
-                    iterations: iterations,
-                    noise: noise,
-                    batchSize: batchSize,
-                    valueTargetStrategy: valueTargetStrategy
-                )
-                handleResult(result)
-            }
-        } else {
-            var workerModels: [SantoriniNet] = []
-            workerModels.reserveCapacity(workers)
-            for _ in 0 ..< workers {
-                let workerModel = SantoriniNet(hiddenDimension: config.hiddenDimension)
-                workerModel.copyWeights(from: model)
-                workerModels.append(workerModel)
-            }
-
-            await withTaskGroup(of: [SelfPlayResult].self) { group in
-                for workerID in 0 ..< workers {
-                    let gameIndices = stride(from: workerID, to: config.gamesPerIteration, by: workers)
-                    let gameCount = Array(gameIndices).count
-                    if gameCount == 0 { continue }
-                    let workerModel = workerModels[workerID]
-                    group.addTask {
-                        let localSelfPlay = SelfPlay()
-                        var localRNG = SeededGenerator(seed: UInt64(iteration &* 10_000 + workerID))
-                        var results: [SelfPlayResult] = []
-                        results.reserveCapacity(gameCount)
-                        for _ in 0 ..< gameCount {
-                            let result = localSelfPlay.runWithDiagnostics(
-                                evaluator: workerModel,
-                                iterations: iterations,
-                                noise: noise,
-                                batchSize: batchSize,
-                                valueTargetStrategy: valueTargetStrategy,
-                                rng: &localRNG
-                            )
-                            results.append(result)
-                        }
-                        return results
-                    }
-                }
-
-                for await workerResults in group {
-                    for result in workerResults {
-                        handleResult(result)
-                    }
-                }
-            }
+        for _ in 1 ... self.config.gamesPerIteration {
+            let result = selfPlay.runWithDiagnostics(
+                evaluator: model,
+                iterations: iterations,
+                noise: noise,
+                valueTargetStrategy: valueTargetStrategy
+            )
+            handleResult(result)
         }
         let end = Date().timeIntervalSince1970
         print("Self play took: \(end-start)")
@@ -208,6 +168,7 @@ public class SantoriniTrainer {
         }
 
         print("Beginning training...")
+        model.train(true)
         var totalPolicyLoss: Float = 0.0
         var totalValueLoss: Float = 0.0
         var totalBaselineMSE: Float = 0.0
@@ -220,7 +181,13 @@ public class SantoriniTrainer {
         var logSnapshots: [PolicyLogSnapshot] = []
 
         for step in 1 ... config.trainingStepsPerIteration {
-            let batch = replayBuffer.sample(batchSize: config.batchSize)
+            let baseBatch = replayBuffer.sample(batchSize: config.batchSize)
+            let batch: [TrainingSample]
+            if config.symmetryAugmentation {
+                batch = baseBatch.flatMap { $0.augmentedBySymmetry() }
+            } else {
+                batch = baseBatch
+            }
             let encodedStates = batch.map { $0.state.encoded() }
             let encodedPolicies = batch.map { $0.encodedPolicy }
             let valuesPerPolicy = encodedPolicies[0].count
@@ -318,6 +285,7 @@ public class SantoriniTrainer {
             optimizer.update(model: model, gradients: grad)
             eval(model, optimizer)
         }
+        model.train(false)
 
         let steps = Float(config.trainingStepsPerIteration)
         let meanPolicyLoss = steps > 0 ? totalPolicyLoss / steps : 0
@@ -831,6 +799,8 @@ public class SantoriniTrainer {
 
     private func evaluationPhase(iteration: Int) {
         print("Beginning evaluation...")
+        model.train(false)
+        bestModel.train(false)
         let result = playMatches(
             current: model,
             best: bestModel,

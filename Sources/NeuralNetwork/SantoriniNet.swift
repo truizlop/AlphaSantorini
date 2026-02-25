@@ -9,10 +9,9 @@ import Foundation
 import MLX
 import MLXNN
 
-// Input: matrix of 9x5x5 - 9 planes (5 for building levels, 4 for workers) of 5x5 grids (board size)
-// Hidden layers: 3 Linear layers with 256 neurons, ReLU
-// Output: policy head (153 logits = 25 for worker placements + 128 for worker-move-build directions)
-//         value head (tanh value -1...1 expected for outcome)
+// Input: [batch, 5, 5, 9] with 9 channels (5 building levels + 4 worker occupancy planes).
+// Architecture: initial convolution block + residual tower.
+// Output: policy logits (153 actions) and value in [-1, 1].
 public class SantoriniNet: Module, @unchecked Sendable {
     let inputBlock: ConvolutionBlock
     let resTower: [ResidualBlock]
@@ -20,7 +19,7 @@ public class SantoriniNet: Module, @unchecked Sendable {
     let valueHead: ValueHead
 
     public init(
-        filters: Int = 64,
+        filters: Int = 256,
         residualBlocks: Int = 5
     ) {
         self.inputBlock = ConvolutionBlock(
@@ -33,12 +32,8 @@ public class SantoriniNet: Module, @unchecked Sendable {
         self.policyHead = PolicyHead(inChannels: filters)
         self.valueHead = ValueHead(
             inChannels: filters,
-            hiddenDimension: 64
+            hiddenUnits: 64
         )
-    }
-
-    public convenience init(hiddenDimension: Int) {
-        self.init(filters: hiddenDimension)
     }
 
     public func callAsFunction(_ input: MLXArray) -> (policy: MLXArray, value: MLXArray) {
@@ -191,7 +186,7 @@ class ValueHead: Module, UnaryLayer {
 
     init(
         inChannels: Int,
-        hiddenDimension: Int
+        hiddenUnits: Int
     ) {
         self.conv = Conv2d(
             inputChannels: inChannels,
@@ -199,8 +194,8 @@ class ValueHead: Module, UnaryLayer {
             kernelSize: IntOrPair(1)
         )
         self.norm = BatchNorm(featureCount: 1)
-        self.linear1 = Linear(5 * 5, hiddenDimension)
-        self.linear2 = Linear(hiddenDimension, 1)
+        self.linear1 = Linear(5 * 5, hiddenUnits)
+        self.linear2 = Linear(hiddenUnits, 1)
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {

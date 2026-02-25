@@ -15,11 +15,8 @@ public enum ValueTargetStrategy: Sendable {
 
 public struct TrainingConfig {
     // Self-play
-    public var hiddenDimension: Int
     public var gamesPerIteration: Int
     public var MCTSSimulations: Int
-    public var mctsBatchSize: Int
-    public var selfPlayWorkers: Int
     public var noise: DirichletNoise?
     public var noiseAnnealIterations: Int
     public var noiseEpsilonFloor: Float
@@ -27,6 +24,7 @@ public struct TrainingConfig {
 
     // Training
     public var batchSize: Int
+    public var symmetryAugmentation: Bool
     public var trainingStepsPerIteration: Int
     public var learningRate: Float
     public var replayBufferSize: Int
@@ -46,16 +44,14 @@ public struct TrainingConfig {
     public var checkpointDirectory: URL
 
     public init(
-        hiddenDimension: Int = 256,
         gamesPerIteration: Int = 100,
         MCTSSimulations: Int = 256,
-        mctsBatchSize: Int = 32,
-        selfPlayWorkers: Int = 1,
         noise: DirichletNoise? = DirichletNoise(epsilon: 0.25, alpha: 0.3),
         noiseAnnealIterations: Int = 150,
         noiseEpsilonFloor: Float = 0.05,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         batchSize: Int = 128,
+        symmetryAugmentation: Bool = true,
         trainingStepsPerIteration: Int = 100,
         learningRate: Float = 0.001,
         replayBufferSize: Int = 100_000,
@@ -70,16 +66,14 @@ public struct TrainingConfig {
         checkpointInterval: Int = 10,
         checkpointDirectory: URL? = nil
     ) {
-        self.hiddenDimension = hiddenDimension
         self.gamesPerIteration = gamesPerIteration
         self.MCTSSimulations = MCTSSimulations
-        self.mctsBatchSize = mctsBatchSize
-        self.selfPlayWorkers = max(1, selfPlayWorkers)
         self.noise = noise
         self.noiseAnnealIterations = noiseAnnealIterations
         self.noiseEpsilonFloor = noiseEpsilonFloor
         self.valueTargetStrategy = valueTargetStrategy
         self.batchSize = batchSize
+        self.symmetryAugmentation = symmetryAugmentation
         self.trainingStepsPerIteration = trainingStepsPerIteration
         self.learningRate = learningRate
         self.replayBufferSize = replayBufferSize

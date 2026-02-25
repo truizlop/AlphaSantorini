@@ -41,7 +41,7 @@ final class ExperimentTests: XCTestCase {
 
     func testPolicyOnlyOverfit() {
         let (inputs, policyTargets, valueTargets, targetIndices) = makeTinyPolicyDataset()
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let optimizer = Adam(learningRate: 0.1)
 
         let (initialPolicy, initialValue) = computeLosses(
@@ -81,7 +81,7 @@ final class ExperimentTests: XCTestCase {
 
     func testValueOnlyOverfit() {
         let (inputs, policyTargets, valueTargets, _) = makeTinyValueDataset()
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let optimizer = Adam(learningRate: 0.01)
 
         let (initialPolicy, initialValue) = computeLosses(
@@ -125,7 +125,7 @@ final class ExperimentTests: XCTestCase {
         let policyTargets = samples.map { $0.encodedPolicy }
         let valueTargets = samples.map { $0.outcome }
 
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let optimizer = Adam(learningRate: 0.01)
 
         let (_, initialValueLoss) = computeLosses(
@@ -167,7 +167,7 @@ final class ExperimentTests: XCTestCase {
         let policyTargets = makeUniformPolicyTargets(count: 2)
         let valueTargets: [Float] = [1.0, -1.0]
 
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let optimizer = Adam(learningRate: 0.005)
 
         let (_, initialValueLoss) = computeLosses(
@@ -210,7 +210,7 @@ final class ExperimentTests: XCTestCase {
         let baseline = baselineMSE(outcomes: outcomes)
 
         let inputs = samples.map { $0.state.encoded() }
-        let net = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
         let (_, values) = net.evaluateBatch(inputs)
         let untrainedMSE = meanSquaredError(predictions: values, targets: outcomes)
 
@@ -225,7 +225,7 @@ final class ExperimentTests: XCTestCase {
         let samples = makeSelfPlaySamples(seed: 4242, maxSamples: 6, mctsIterations: 2)
         XCTAssertFalse(samples.isEmpty)
 
-        let net = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
         let inputs = samples.map { $0.state.encoded() }
         let (_, predictions) = net.evaluateBatch(inputs)
 
@@ -249,7 +249,7 @@ final class ExperimentTests: XCTestCase {
         let samples = makeSelfPlaySamples(seed: 9090, maxSamples: 8, mctsIterations: 2)
         XCTAssertFalse(samples.isEmpty)
 
-        let net = SantoriniNet(hiddenDimension: 128)
+        let net = SantoriniNet(filters: 128)
         try net.load(from: checkpoint)
 
         let inputs = samples.map { $0.state.encoded() }
@@ -274,7 +274,7 @@ final class ExperimentTests: XCTestCase {
         let samples = makeSelfPlaySamples(seed: 6060, maxSamples: 16, mctsIterations: 2)
         XCTAssertFalse(samples.isEmpty)
 
-        let net = SantoriniNet(hiddenDimension: 128)
+        let net = SantoriniNet(filters: 128)
         try net.load(from: checkpoint)
 
         let inputs = samples.map { $0.state.encoded() }
@@ -309,7 +309,7 @@ final class ExperimentTests: XCTestCase {
         let targets = concatenated([piTarget, zTarget], axis: 1)
         let valuesPerPolicy = policyTargets[0].count
 
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let (_, grad) = valueAndGrad(model: net) { net, obs, targets in
             let (policyLogits, valuePred) = net(obs)
             let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
@@ -344,7 +344,7 @@ final class ExperimentTests: XCTestCase {
         let policyTargets = makeUniformPolicyTargets(count: 2)
         let valueTargets: [Float] = [sample.outcome, -sample.outcome]
 
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let optimizer = Adam(learningRate: 0.005)
         train(
             net: net,
@@ -387,7 +387,7 @@ final class ExperimentTests: XCTestCase {
         let policyTargets = samples.map { $0.encodedPolicy }
         let valueTargets = samples.map { $0.outcome }
 
-        let net = SantoriniNet(hiddenDimension: 32)
+        let net = SantoriniNet(filters: 32)
         let optimizer = Adam(learningRate: 0.02)
 
         let (initialPolicyLoss, _) = computeLosses(
@@ -492,14 +492,13 @@ private func makeSelfPlaySamples(
     maxSamples: Int,
     mctsIterations: Int
 ) -> [TrainingSample] {
-    let net = SantoriniNet(hiddenDimension: 16)
+    let net = SantoriniNet(filters: 16)
     let selfPlay = SelfPlay()
     var rng = SeededGenerator(seed: seed)
     let result = selfPlay.runWithDiagnostics(
         evaluator: net,
         iterations: mctsIterations,
         noise: nil,
-        batchSize: 1,
         useTemperature: false,
         rng: &rng
     )

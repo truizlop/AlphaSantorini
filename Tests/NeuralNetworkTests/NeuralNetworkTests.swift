@@ -15,7 +15,7 @@ final class NeuralNetworkTests: XCTestCase {
     }
 
     func testOutputShapesAndRanges() {
-        let net = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
         let (policy, value) = net.evaluate(makeInput())
         XCTAssertEqual(policy.count, 153)
         let sum = policy.reduce(0, +)
@@ -25,7 +25,7 @@ final class NeuralNetworkTests: XCTestCase {
     }
 
     func testSaveLoadRoundTrip() throws {
-        let net = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
         let input = makeInput()
         let original = net.evaluate(input)
 
@@ -34,7 +34,7 @@ final class NeuralNetworkTests: XCTestCase {
         let fileURL = dir.appending(path: "net.safetensors")
         try net.save(to: fileURL)
 
-        let loaded = SantoriniNet(hiddenDimension: 16)
+        let loaded = SantoriniNet(filters: 16)
         try loaded.load(from: fileURL)
         let reloaded = loaded.evaluate(input)
 
@@ -46,8 +46,8 @@ final class NeuralNetworkTests: XCTestCase {
     }
 
     func testCopyWeightsDoesNotAlias() {
-        let net = SantoriniNet(hiddenDimension: 16)
-        let copy = SantoriniNet(hiddenDimension: 16)
+        let net = SantoriniNet(filters: 16)
+        let copy = SantoriniNet(filters: 16)
         copy.copyWeights(from: net)
 
         let input = makeInput()

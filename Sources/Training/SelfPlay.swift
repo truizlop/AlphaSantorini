@@ -25,7 +25,6 @@ public class SelfPlay: @unchecked Sendable {
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
-        batchSize: Int,
         useTemperature: Bool = true,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         maxMoves: Int? = nil
@@ -35,7 +34,6 @@ public class SelfPlay: @unchecked Sendable {
             evaluator: evaluator,
             iterations: iterations,
             noise: noise,
-            batchSize: batchSize,
             useTemperature: useTemperature,
             valueTargetStrategy: valueTargetStrategy,
             maxMoves: maxMoves
@@ -48,7 +46,6 @@ public class SelfPlay: @unchecked Sendable {
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
-        batchSize: Int,
         useTemperature: Bool = true,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         maxMoves: Int? = nil,
@@ -59,7 +56,6 @@ public class SelfPlay: @unchecked Sendable {
             evaluator: evaluator,
             iterations: iterations,
             noise: noise,
-            batchSize: batchSize,
             useTemperature: useTemperature,
             valueTargetStrategy: valueTargetStrategy,
             maxMoves: maxMoves,
@@ -72,7 +68,6 @@ public class SelfPlay: @unchecked Sendable {
         evaluator: SantoriniNet,
         iterations: Int,
         noise: DirichletNoise?,
-        batchSize: Int,
         useTemperature: Bool = true,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
         maxMoves: Int? = nil,
@@ -83,8 +78,6 @@ public class SelfPlay: @unchecked Sendable {
         var move = 0
         var wasTruncated = false
         let totalMoves = maxMoves ?? .max
-
-        _ = batchSize
 
         func searchStep<E: PolicyValueNetwork>(
             with mctsEvaluator: E,

@@ -20,9 +20,6 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Override checkpoint output directory.")
         var checkpointDir: String?
 
-        @Option(help: "Hidden dimension for the network.")
-        var hiddenDimension: Int = 256
-
         @Option(help: "Resume training from a checkpoint (safetensors).")
         var resumeCheckpoint: String?
 
@@ -32,17 +29,14 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "MCTS simulations per move.")
         var mctsSimulations: Int = 256
 
-        @Option(help: "MCTS batch size.")
-        var mctsBatchSize: Int = 32
-
-        @Option(help: "Number of concurrent self-play workers.")
-        var selfPlayWorkers: Int = 1
-
         @Option(help: "Training steps per iteration.")
         var trainingStepsPerIteration: Int = 100
 
         @Option(help: "Training batch size.")
         var batchSize: Int = 128
+
+        @Flag(help: "Disable symmetry augmentation for training batches.")
+        var noSymmetryAugmentation: Bool = false
 
         @Option(help: "Learning rate.")
         var learningRate: Float = 0.001
@@ -105,16 +99,14 @@ struct AlphaSantorini: AsyncParsableCommand {
             let noise: DirichletNoise? = noNoise ? nil : DirichletNoise(epsilon: noiseEpsilon, alpha: noiseAlpha)
             let valueStrategy: ValueTargetStrategy = valueTargetStrategy == .mcts ? .mctsRootValue : .terminalOutcome
             let config = TrainingConfig(
-                hiddenDimension: hiddenDimension,
                 gamesPerIteration: gamesPerIteration,
                 MCTSSimulations: mctsSimulations,
-                mctsBatchSize: mctsBatchSize,
-                selfPlayWorkers: selfPlayWorkers,
                 noise: noise,
                 noiseAnnealIterations: noiseAnnealIterations,
                 noiseEpsilonFloor: noiseEpsilonFloor,
                 valueTargetStrategy: valueStrategy,
                 batchSize: batchSize,
+                symmetryAugmentation: !noSymmetryAugmentation,
                 trainingStepsPerIteration: trainingStepsPerIteration,
                 learningRate: learningRate,
                 replayBufferSize: replayBufferSize,
@@ -145,9 +137,6 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Checkpoint file to load (safetensors).")
         var checkpoint: String?
 
-        @Option(help: "Hidden dimension for the network.")
-        var hiddenDimension: Int = 256
-
         @Option(help: "MCTS simulations per move.")
         var mctsSimulations: Int = 200
 
@@ -171,10 +160,11 @@ struct AlphaSantorini: AsyncParsableCommand {
         }
 
         private func runInspect<R: RandomNumberGenerator>(rng: inout R) throws {
-            let net = SantoriniNet(hiddenDimension: hiddenDimension)
+            let net = SantoriniNet()
             if let checkpoint {
                 try net.load(from: URL(filePath: checkpoint))
             }
+            net.train(false)
 
             var state = GameState()
             if advance > 0 {
@@ -233,9 +223,6 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "MCTS simulations per move.")
         var mctsSimulations: Int = 400
 
-        @Option(help: "MCTS batch size.")
-        var mctsBatchSize: Int = 16
-
         @Flag(help: "Disable Dirichlet noise for self-play.")
         var noNoise: Bool = false
 
@@ -256,6 +243,7 @@ struct AlphaSantorini: AsyncParsableCommand {
             if let checkpoint {
                 try net.load(from: URL(filePath: checkpoint))
             }
+            net.train(false)
 
             let noise: DirichletNoise? = noNoise ? nil : DirichletNoise(epsilon: noiseEpsilon, alpha: noiseAlpha)
             let selfPlay = SelfPlay()
@@ -267,15 +255,13 @@ struct AlphaSantorini: AsyncParsableCommand {
                     evaluator: net,
                     iterations: mctsSimulations,
                     noise: noise,
-                    batchSize: mctsBatchSize,
                     rng: &rng
                 )
             } else {
                 result = selfPlay.runWithDiagnostics(
                     evaluator: net,
                     iterations: mctsSimulations,
-                    noise: noise,
-                    batchSize: mctsBatchSize
+                    noise: noise
                 )
             }
 
@@ -416,9 +402,6 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Checkpoint B (safetensors).")
         var checkpointB: String
 
-        @Option(help: "Hidden dimension for both networks.")
-        var hiddenDimension: Int = 256
-
         @Option(help: "MCTS simulations per move.")
         var mctsSimulations: Int = 200
 
@@ -429,10 +412,12 @@ struct AlphaSantorini: AsyncParsableCommand {
         var seed: UInt64?
 
         func run() throws {
-            let netA = SantoriniNet(hiddenDimension: hiddenDimension)
-            let netB = SantoriniNet(hiddenDimension: hiddenDimension)
+            let netA = SantoriniNet()
+            let netB = SantoriniNet()
             try netA.load(from: URL(filePath: checkpointA))
             try netB.load(from: URL(filePath: checkpointB))
+            netA.train(false)
+            netB.train(false)
 
             var winsA = 0
             var winsB = 0
@@ -525,9 +510,6 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Checkpoint (safetensors) for the trained network.")
         var checkpoint: String
 
-        @Option(help: "Hidden dimension for the network.")
-        var hiddenDimension: Int = 256
-
         @Option(help: "MCTS simulations per move.")
         var mctsSimulations: Int = 200
 
@@ -541,8 +523,9 @@ struct AlphaSantorini: AsyncParsableCommand {
         var policyOnly: Bool = false
 
         func run() throws {
-            let trained = SantoriniNet(hiddenDimension: hiddenDimension)
+            let trained = SantoriniNet()
             try trained.load(from: URL(filePath: checkpoint))
+            trained.train(false)
 
             let baseline = UniformPolicyEvaluator()
 
