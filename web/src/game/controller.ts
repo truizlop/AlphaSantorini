@@ -1,6 +1,6 @@
 import { BoardScene, HighlightType } from "../ui/scene";
 import { wasm, StateSummary } from "../engine/wasmBridge";
-import { BOARD_SIZE, decodeAction, destination, tileKey } from "./actions";
+import { BOARD_SIZE, decodeAction, destination, tileKey, DIRECTIONS } from "./actions";
 import { selectAction } from "../ai/mcts";
 import { getModelReadyStatus } from "../ai/onnx";
 
@@ -290,6 +290,7 @@ export class GameController {
         temperature: difficulty.temperature,
       });
       actionId = result.actionId;
+      this.logAiConsiderations(result.distribution, result.rootValue);
     } catch (error) {
       console.error(error);
       this.statusEl.textContent = "AI failed to respond. Falling back to random moves.";
@@ -305,6 +306,38 @@ export class GameController {
     this.aiThinking = false;
     this.aiStatusEl.classList.remove("thinking");
     this.setAiReadyStatus();
+  }
+
+  private logAiConsiderations(
+    distribution: Array<{ actionId: number; weight: number }>,
+    value: number
+  ): void {
+    if (!distribution.length) {
+      console.log(`AI move: no distribution (value=${value.toFixed(3)})`);
+      return;
+    }
+    const top = [...distribution]
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 3)
+      .map((entry) => ({
+        ...entry,
+        label: this.describeAction(entry.actionId),
+      }));
+    const parts = top.map(
+      (entry) => `${entry.label} p=${entry.weight.toFixed(3)}`
+    );
+    console.log(`AI move (value=${value.toFixed(3)}): ${parts.join(" | ")}`);
+  }
+
+  private describeAction(actionId: number): string {
+    const decoded = decodeAction(actionId);
+    if (decoded.type === "placement") {
+      return `Place(${decoded.row},${decoded.col})`;
+    }
+    const moveDir = DIRECTIONS[decoded.moveDir]?.name ?? `${decoded.moveDir}`;
+    const buildDir = DIRECTIONS[decoded.buildDir]?.name ?? `${decoded.buildDir}`;
+    const worker = decoded.workerId === "one" ? "W1" : "W2";
+    return `Move(${worker} ${moveDir}->${buildDir})`;
   }
 
   private randomLegalAction(): number | null {
@@ -399,14 +432,14 @@ export class GameController {
   private getDifficultyConfig(): { iterations: number; temperature: number } {
     switch (this.difficultyInput.value) {
       case "easy":
-        return { iterations: 200, temperature: 0.8 };
+        return { iterations: 128, temperature: 0.8 };
       case "hard":
-        return { iterations: 200, temperature: 0.2 };
+        return { iterations: 512, temperature: 0.2 };
       case "extreme":
-        return { iterations: 200, temperature: 0 };
+        return { iterations: 2048, temperature: 0 };
       case "medium":
       default:
-        return { iterations: 200, temperature: 0.4 };
+        return { iterations: 256, temperature: 0.4 };
     }
   }
 }

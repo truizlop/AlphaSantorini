@@ -19,17 +19,17 @@ export async function loadModel(): Promise<void> {
     return;
   }
 
-  const wasmPath = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
-  ort.env.wasm.wasmPaths = wasmPath;
-  const threaded =
-    typeof crossOriginIsolated === "boolean" ? crossOriginIsolated : false;
-  ort.env.wasm.numThreads = threaded
-    ? Math.max(1, Math.min(4, navigator.hardwareConcurrency || 2))
-    : 1;
+  const wasmBase = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+  ort.env.wasm.wasmPaths = {
+    mjs: `${wasmBase}ort-wasm-simd-threaded.mjs`,
+    wasm: `${wasmBase}ort-wasm-simd-threaded.wasm`,
+  };
+  ort.env.wasm.numThreads = 1;
 
   const modelUrl = `${import.meta.env.BASE_URL}models/santorini.onnx`;
   const modelAvailable = await hasModelFile(modelUrl);
   if (!modelAvailable) {
+    console.warn(`ONNX model not found at ${modelUrl}`);
     return;
   }
   session = await ort.InferenceSession.create(modelUrl, {
@@ -41,6 +41,17 @@ export async function loadModel(): Promise<void> {
 async function hasModelFile(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { method: "HEAD" });
+    if (response.ok) {
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-0" },
+    });
     return response.ok;
   } catch {
     return false;

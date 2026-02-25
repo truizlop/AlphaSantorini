@@ -162,7 +162,11 @@ function sampleAction(distribution: Array<{ actionId: number; weight: number }>)
 export async function selectAction(
   rootHandle: number,
   config: MCTSConfig
-): Promise<{ actionId: number | null; distribution: Array<{ actionId: number; weight: number }> }> {
+): Promise<{
+  actionId: number | null;
+  distribution: Array<{ actionId: number; weight: number }>;
+  rootValue: number;
+}> {
   const root = new Node(rootHandle, 0, null, null, false);
   const rootEval = await evaluateState(rootHandle);
   const rootChildren = buildChildren(rootHandle, rootEval.policy);
@@ -195,7 +199,7 @@ export async function selectAction(
   const distribution = temperatureDistribution(root, config.temperature);
   const actionId = sampleAction(distribution);
   root.dispose();
-  return { actionId, distribution };
+  return { actionId, distribution, rootValue: rootEval.value };
 }
 
 export function actionDestination(
