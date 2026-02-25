@@ -18,6 +18,10 @@ public struct Board {
         )
     }
 
+    init(board: [[Building]]) {
+        self.board = board
+    }
+
     subscript(_ position: Position) -> Building {
         get {
             board[position.row][position.column]

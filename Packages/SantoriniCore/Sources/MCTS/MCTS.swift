@@ -36,6 +36,68 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork, R: RandomNumbe
     explorationConstant: Float = 1.5,
     noise: DirichletNoise? = nil
 ) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
+    let result = runMctsSingle(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise
+    )
+    return (result.bestMove, result.distribution)
+}
+
+public func mctsWithRootValue<State: GameState, Evaluator: PolicyValueNetwork>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil
+) -> (bestMove: State.Move?, distribution: [State.Move: Float], rootValue: Float) where Evaluator.State == State {
+    var rng = SystemRandomNumberGenerator()
+    return mctsWithRootValue(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise
+    )
+}
+
+public func mctsWithRootValue<State: GameState, Evaluator: PolicyValueNetwork, R: RandomNumberGenerator>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    rng: inout R,
+    explorationConstant: Float = 1.5,
+    noise: DirichletNoise? = nil
+) -> (bestMove: State.Move?, distribution: [State.Move: Float], rootValue: Float) where Evaluator.State == State {
+    let result = runMctsSingle(
+        rootState: rootState,
+        evaluator: evaluator,
+        iterations: iterations,
+        temperature: temperature,
+        rng: &rng,
+        explorationConstant: explorationConstant,
+        noise: noise
+    )
+    return (result.bestMove, result.distribution, result.root.meanValue)
+}
+
+private func runMctsSingle<State: GameState, Evaluator: PolicyValueNetwork, R: RandomNumberGenerator>(
+    rootState: State,
+    evaluator: Evaluator,
+    iterations: Int,
+    temperature: Float,
+    rng: inout R,
+    explorationConstant: Float,
+    noise: DirichletNoise?
+) -> (root: MCTSNode<State>, bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
     let root = MCTSNode(
         state: rootState,
         move: nil,
@@ -55,171 +117,14 @@ public func mcts<State: GameState, Evaluator: PolicyValueNetwork, R: RandomNumbe
             node = best
         }
 
-        let value: Float = if node.state.isTerminal {
-            node.state.terminalValue
+        let value: Float
+        if node.state.isTerminal {
+            value = node.state.terminalValue
         } else {
-            node.expand(using: evaluator)
+            value = node.expand(using: evaluator)
         }
 
         node.backpropagate(value: value)
-    }
-
-    return (
-        bestMove(from: root, temperature: temperature, rng: &rng),
-        visitDistribution(from: root, temperature: temperature)
-    )
-}
-
-public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork>(
-    rootState: State,
-    evaluator: Evaluator,
-    iterations: Int,
-    temperature: Float,
-    explorationConstant: Float = 1.5,
-    noise: DirichletNoise? = nil,
-    batchSize: Int = 16
-) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
-    var rng = SystemRandomNumberGenerator()
-    return mctsBatched(
-        rootState: rootState,
-        evaluator: evaluator,
-        iterations: iterations,
-        temperature: temperature,
-        rng: &rng,
-        explorationConstant: explorationConstant,
-        noise: noise,
-        batchSize: batchSize
-    )
-}
-
-public func mctsBatchedWithRootValue<State: GameState, Evaluator: BatchPolicyValueNetwork>(
-    rootState: State,
-    evaluator: Evaluator,
-    iterations: Int,
-    temperature: Float,
-    explorationConstant: Float = 1.5,
-    noise: DirichletNoise? = nil,
-    batchSize: Int = 16
-) -> (bestMove: State.Move?, distribution: [State.Move: Float], rootValue: Float) where Evaluator.State == State {
-    var rng = SystemRandomNumberGenerator()
-    return mctsBatchedWithRootValue(
-        rootState: rootState,
-        evaluator: evaluator,
-        iterations: iterations,
-        temperature: temperature,
-        rng: &rng,
-        explorationConstant: explorationConstant,
-        noise: noise,
-        batchSize: batchSize
-    )
-}
-
-public func mctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
-    rootState: State,
-    evaluator: Evaluator,
-    iterations: Int,
-    temperature: Float,
-    rng: inout R,
-    explorationConstant: Float = 1.5,
-    noise: DirichletNoise? = nil,
-    batchSize: Int = 16
-) -> (bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
-    let result = runMctsBatched(
-        rootState: rootState,
-        evaluator: evaluator,
-        iterations: iterations,
-        temperature: temperature,
-        rng: &rng,
-        explorationConstant: explorationConstant,
-        noise: noise,
-        batchSize: batchSize
-    )
-    return (result.bestMove, result.distribution)
-}
-
-public func mctsBatchedWithRootValue<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
-    rootState: State,
-    evaluator: Evaluator,
-    iterations: Int,
-    temperature: Float,
-    rng: inout R,
-    explorationConstant: Float = 1.5,
-    noise: DirichletNoise? = nil,
-    batchSize: Int = 16
-) -> (bestMove: State.Move?, distribution: [State.Move: Float], rootValue: Float) where Evaluator.State == State {
-    let result = runMctsBatched(
-        rootState: rootState,
-        evaluator: evaluator,
-        iterations: iterations,
-        temperature: temperature,
-        rng: &rng,
-        explorationConstant: explorationConstant,
-        noise: noise,
-        batchSize: batchSize
-    )
-    return (result.bestMove, result.distribution, result.root.meanValue)
-}
-
-private func runMctsBatched<State: GameState, Evaluator: BatchPolicyValueNetwork, R: RandomNumberGenerator>(
-    rootState: State,
-    evaluator: Evaluator,
-    iterations: Int,
-    temperature: Float,
-    rng: inout R,
-    explorationConstant: Float,
-    noise: DirichletNoise?,
-    batchSize: Int
-) -> (root: MCTSNode<State>, bestMove: State.Move?, distribution: [State.Move: Float]) where Evaluator.State == State {
-    let root = MCTSNode(
-        state: rootState,
-        move: nil,
-        prior: 0
-    )
-    let (rootPolicies, rootValues) = MCTSProfiler.measureEvaluate {
-        evaluator.evaluate(states: [rootState])
-    }
-    _ = root.expand(with: rootPolicies[0], value: rootValues[0])
-
-    if let noise {
-        root.addDirichletNoise(noise, rng: &rng)
-    }
-
-    var remaining = iterations
-    while remaining > 0 {
-        var leaves: [MCTSNode<State>] = []
-        leaves.reserveCapacity(batchSize)
-
-        var budget = min(batchSize, remaining)
-        while budget > 0 {
-            var node = root
-            while node.isExpanded && !node.state.isTerminal {
-                guard let best = node.bestChild(explorationConstant: explorationConstant) else { break }
-                node = best
-            }
-
-            if node.state.isTerminal {
-                node.backpropagate(value: node.state.terminalValue)
-            } else {
-                leaves.append(node)
-            }
-
-            budget -= 1
-            remaining -= 1
-        }
-
-        if leaves.isEmpty {
-            continue
-        }
-
-        let states = leaves.map(\.state)
-        let (policies, values) = MCTSProfiler.measureEvaluate {
-            evaluator.evaluate(states: states)
-        }
-
-        for (index, node) in leaves.enumerated() {
-            let value = node.expand(with: policies[index], value: values[index])
-            node.backpropagate(value: value)
-        }
     }
 
     return (

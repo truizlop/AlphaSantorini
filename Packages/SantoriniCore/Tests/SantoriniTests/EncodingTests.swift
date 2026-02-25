@@ -5,12 +5,18 @@ final class EncodingTests: XCTestCase {
     func testGameStateEncodingShapeAndHeightChannels() {
         let state = GameState()
         let encoded = state.encoded()
-        XCTAssertEqual(encoded.count, 200)
+        XCTAssertEqual(encoded.count, 5)
+        XCTAssertEqual(encoded.first?.count, 5)
+        XCTAssertEqual(encoded.first?.first?.count, 9)
 
-        let height0 = encoded[0..<25]
-        let otherHeights = encoded[25..<125]
-        XCTAssertTrue(height0.allSatisfy { $0 == 1.0 })
-        XCTAssertTrue(otherHeights.allSatisfy { $0 == 0.0 })
+        for row in 0..<5 {
+            for col in 0..<5 {
+                XCTAssertEqual(encoded[row][col][0], 1.0)
+                for channel in 1..<9 {
+                    XCTAssertEqual(encoded[row][col][channel], 0.0)
+                }
+            }
+        }
     }
 
     func testWorkerEncodingChannels() {
@@ -25,15 +31,10 @@ final class EncodingTests: XCTestCase {
         state.phase = .play
 
         let encoded = state.encoded()
-        let indexCurrentOne = 125 + 0
-        let indexCurrentTwo = 150 + 1
-        let indexOtherOne = 175 + (4 * 5 + 4)
-        let indexOtherTwo = 175 + (4 * 5 + 3)
-
-        XCTAssertEqual(encoded[indexCurrentOne], 1.0)
-        XCTAssertEqual(encoded[indexCurrentTwo], 1.0)
-        XCTAssertEqual(encoded[indexOtherOne], 1.0)
-        XCTAssertEqual(encoded[indexOtherTwo], 1.0)
+        XCTAssertEqual(encoded[0][0][5], 1.0)
+        XCTAssertEqual(encoded[0][1][6], 1.0)
+        XCTAssertEqual(encoded[4][4][7], 1.0)
+        XCTAssertEqual(encoded[4][3][8], 1.0)
     }
 
     func testActionEncodingRoundTrip() {

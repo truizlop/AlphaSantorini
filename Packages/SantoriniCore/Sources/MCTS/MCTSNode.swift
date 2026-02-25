@@ -12,9 +12,7 @@ public class MCTSNode<State: GameState> {
     let move: State.Move?
     weak var parent: MCTSNode<State>?
     var children: [MCTSNode<State>] = []
-    private lazy var cachedLegalMoves: [State.Move] = MCTSProfiler.measureLegalMoves {
-        state.legalMoves()
-    }
+    private lazy var cachedLegalMoves: [State.Move] = state.legalMoves()
 
     var visits: Int = 0
     var totalValue: Float = 0
@@ -48,10 +46,8 @@ public class MCTSNode<State: GameState> {
     }
 
     func bestChild(explorationConstant: Float) -> MCTSNode<State>? {
-        MCTSProfiler.measureSelection {
-            children.max { a, b in
-                a.puctScore(explorationConstant: explorationConstant) < b.puctScore(explorationConstant: explorationConstant)
-            }
+        children.max { a, b in
+            a.puctScore(explorationConstant: explorationConstant) < b.puctScore(explorationConstant: explorationConstant)
         }
     }
 
@@ -60,9 +56,7 @@ public class MCTSNode<State: GameState> {
         guard !state.isTerminal else {
             return state.terminalValue
         }
-        let (policy, value) = MCTSProfiler.measureEvaluate {
-            evaluator.evaluate(state: state)
-        }
+        let (policy, value) = evaluator.evaluate(state: state)
         return expand(with: policy, value: value)
     }
 
@@ -83,9 +77,7 @@ public class MCTSNode<State: GameState> {
         let fallbackPrior = 1.0 / Float(legalMoves.count)
 
         for (index, move) in legalMoves.enumerated() {
-            let childState = MCTSProfiler.measureApply {
-                state.applying(move: move)
-            }
+            let childState = state.applying(move: move)
             let prior = priorSum > 0 ? rawPriors[index] / priorSum : fallbackPrior
             let child = MCTSNode(
                 state: childState,

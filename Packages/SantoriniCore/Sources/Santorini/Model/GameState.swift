@@ -110,71 +110,53 @@ public struct GameState {
     public var legalMoves: [Move] {
         guard phase == .play else { return [] }
 
-        func isOccupiedAfterMove(
-            position: Position,
-            movingWorker: Worker,
-            destination: Position
-        ) -> Bool {
-            if position == destination {
-                return true
-            }
-            return workers.contains { worker in
-                if worker.player == movingWorker.player && worker.id == movingWorker.id {
-                    return false
-                }
-                return worker.position == position
-            }
-        }
+        var result: [Move] = []
+        result.reserveCapacity(64)
 
-        return workers.flatMap { worker -> [Move] in
-            guard worker.player == turn else { return [] }
+        for worker in workers {
+            guard worker.player == turn else { continue }
+            let origin = worker.position
+            let currentBuilding = board[origin]
 
-            let allowedMoveDirections = Direction.allCases.compactMap { moveDirection -> Direction? in
-                guard worker.position.canMove(direction: moveDirection) else {
-                    return nil
-                }
-                let targetPosition = worker.position.move(direction: moveDirection)
-                let currentBuilding = board[worker.position]
-                let targetBuilding = board[targetPosition]
-                if currentBuilding.canMoveTowards(building: targetBuilding) && !isWorkerOn(position: targetPosition) {
-                    return moveDirection
-                } else {
-                    return nil
-                }
-            }
+            for moveDirection in Direction.allCases {
+                guard origin.canMove(direction: moveDirection) else { continue }
 
-            let allowedMoves = allowedMoveDirections.flatMap { moveDirection in
-                let targetPosition = worker.position.move(direction: moveDirection)
+                let destination = origin.move(direction: moveDirection)
+                guard !isWorkerOn(position: destination) else { continue }
 
-                let allowedBuildDirections = Direction.allCases.compactMap { buildDirection in
-                    if targetPosition.canMove(direction: buildDirection) {
-                        let targetBuild = targetPosition.move(direction: buildDirection)
-                        if board[targetBuild] != .dome &&
-                            !isOccupiedAfterMove(
-                                position: targetBuild,
-                                movingWorker: worker,
-                                destination: targetPosition
-                            ) {
-                            return buildDirection
-                        } else {
-                            return nil
+                let destinationBuilding = board[destination]
+                guard currentBuilding.canMoveTowards(building: destinationBuilding) else { continue }
+
+                for buildDirection in Direction.allCases {
+                    guard destination.canMove(direction: buildDirection) else { continue }
+
+                    let buildPosition = destination.move(direction: buildDirection)
+                    guard board[buildPosition] != .dome else { continue }
+
+                    var occupied = false
+                    for other in workers {
+                        if other.player == worker.player && other.id == worker.id {
+                            continue
                         }
-                    } else {
-                        return nil
+                        if other.position == buildPosition {
+                            occupied = true
+                            break
+                        }
                     }
-                }
+                    guard !occupied else { continue }
 
-                return allowedBuildDirections.map { buildDirection in
-                    Move(
-                        id: worker.id,
-                        moveDirection: moveDirection,
-                        buildDirection: buildDirection
+                    result.append(
+                        Move(
+                            id: worker.id,
+                            moveDirection: moveDirection,
+                            buildDirection: buildDirection
+                        )
                     )
                 }
             }
-
-            return allowedMoves
         }
+
+        return result
     }
 
     public func show() {

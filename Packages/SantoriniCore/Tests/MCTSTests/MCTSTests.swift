@@ -66,27 +66,19 @@ private struct SingleMoveState: GameState {
     }
 }
 
-private struct UniformEvaluator: PolicyValueNetwork, BatchPolicyValueNetwork {
+private struct UniformEvaluator: PolicyValueNetwork {
     typealias State = TestState
 
     func evaluate(state: TestState) -> (policy: [Float], value: Float) {
         ([0.5, 0.5], 0.0)
     }
-
-    func evaluate(states: [TestState]) -> (policies: [[Float]], values: [Float]) {
-        (Array(repeating: [0.5, 0.5], count: states.count), Array(repeating: 0.0, count: states.count))
-    }
 }
 
-private struct SingleMoveEvaluator: PolicyValueNetwork, BatchPolicyValueNetwork {
+private struct SingleMoveEvaluator: PolicyValueNetwork {
     typealias State = SingleMoveState
 
     func evaluate(state: SingleMoveState) -> (policy: [Float], value: Float) {
         ([0.0, 1.0], 0.0)
-    }
-
-    func evaluate(states: [SingleMoveState]) -> (policies: [[Float]], values: [Float]) {
-        (Array(repeating: [0.0, 1.0], count: states.count), Array(repeating: 0.0, count: states.count))
     }
 }
 
@@ -121,49 +113,6 @@ final class MCTSTests: XCTestCase {
         for key in result1.distribution.keys {
             XCTAssertEqual(result1.distribution[key]!, result2.distribution[key]!, accuracy: 1e-6)
         }
-    }
-
-    func testMctsBatchedDeterministicWithSeed() {
-        let root = TestState(toPlay: 0, terminal: false, terminalScore: 0, winningMove: .win)
-        let evaluator = UniformEvaluator()
-        var rng1 = SeededGenerator(seed: 99)
-        var rng2 = SeededGenerator(seed: 99)
-        let result1 = mctsBatched(
-            rootState: root,
-            evaluator: evaluator,
-            iterations: 50,
-            temperature: 1.0,
-            rng: &rng1,
-            batchSize: 8
-        )
-        let result2 = mctsBatched(
-            rootState: root,
-            evaluator: evaluator,
-            iterations: 50,
-            temperature: 1.0,
-            rng: &rng2,
-            batchSize: 8
-        )
-        XCTAssertEqual(result1.distribution.keys, result2.distribution.keys)
-        for key in result1.distribution.keys {
-            XCTAssertEqual(result1.distribution[key]!, result2.distribution[key]!, accuracy: 1e-6)
-        }
-    }
-
-    func testMctsBatchedHandlesSmallIterations() {
-        let root = TestState(toPlay: 0, terminal: false, terminalScore: 0, winningMove: .win)
-        let evaluator = UniformEvaluator()
-        var rng = SeededGenerator(seed: 123)
-        let result = mctsBatched(
-            rootState: root,
-            evaluator: evaluator,
-            iterations: 2,
-            temperature: 1.0,
-            rng: &rng,
-            batchSize: 8
-        )
-        XCTAssertFalse(result.distribution.isEmpty)
-        XCTAssertNotNil(result.distribution[.win])
     }
 
     func testExpandIsIdempotent() {
