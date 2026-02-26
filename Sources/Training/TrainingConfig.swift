@@ -21,6 +21,9 @@ public struct TrainingConfig {
     public var noiseAnnealIterations: Int
     public var noiseEpsilonFloor: Float
     public var valueTargetStrategy: ValueTargetStrategy
+    public var selfPlayBatchSize: Int
+    public var selfPlayConcurrency: Int
+    public var batchTimeoutMicroseconds: UInt64
 
     // Training
     public var batchSize: Int
@@ -50,6 +53,9 @@ public struct TrainingConfig {
         noiseAnnealIterations: Int = 150,
         noiseEpsilonFloor: Float = 0.05,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
+        selfPlayBatchSize: Int = 64,
+        selfPlayConcurrency: Int = 0,
+        batchTimeoutMicroseconds: UInt64 = 100,
         batchSize: Int = 128,
         symmetryAugmentation: Bool = true,
         trainingStepsPerIteration: Int = 100,
@@ -72,6 +78,9 @@ public struct TrainingConfig {
         self.noiseAnnealIterations = noiseAnnealIterations
         self.noiseEpsilonFloor = noiseEpsilonFloor
         self.valueTargetStrategy = valueTargetStrategy
+        self.selfPlayBatchSize = selfPlayBatchSize
+        self.selfPlayConcurrency = selfPlayConcurrency
+        self.batchTimeoutMicroseconds = batchTimeoutMicroseconds
         self.batchSize = batchSize
         self.symmetryAugmentation = symmetryAugmentation
         self.trainingStepsPerIteration = trainingStepsPerIteration
