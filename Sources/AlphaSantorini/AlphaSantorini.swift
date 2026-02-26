@@ -89,6 +89,15 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Checkpoint interval.")
         var checkpointInterval: Int = 10
 
+        @Option(help: "Max batch size for batched NN evaluation during self-play.")
+        var selfPlayBatchSize: Int = 64
+
+        @Option(help: "Max concurrent self-play games (0 = all games).")
+        var selfPlayConcurrency: Int = 0
+
+        @Option(help: "Batch flush timeout in microseconds.")
+        var batchTimeoutMicroseconds: UInt64 = 100
+
         enum ValueTargetChoice: String, ExpressibleByArgument {
             case terminal
             case mcts
@@ -105,6 +114,9 @@ struct AlphaSantorini: AsyncParsableCommand {
                 noiseAnnealIterations: noiseAnnealIterations,
                 noiseEpsilonFloor: noiseEpsilonFloor,
                 valueTargetStrategy: valueStrategy,
+                selfPlayBatchSize: selfPlayBatchSize,
+                selfPlayConcurrency: selfPlayConcurrency,
+                batchTimeoutMicroseconds: batchTimeoutMicroseconds,
                 batchSize: batchSize,
                 symmetryAugmentation: !noSymmetryAugmentation,
                 trainingStepsPerIteration: trainingStepsPerIteration,
@@ -485,19 +497,6 @@ struct AlphaSantorini: AsyncParsableCommand {
                 state = state.applying(move: action)
             }
             return state.winner
-        }
-    }
-
-    struct SeededGenerator: RandomNumberGenerator {
-        private var state: UInt64
-
-        init(seed: UInt64) {
-            self.state = seed
-        }
-
-        mutating func next() -> UInt64 {
-            state = state &* 6364136223846793005 &+ 1442695040888963407
-            return state
         }
     }
 

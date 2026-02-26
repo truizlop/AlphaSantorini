@@ -65,13 +65,13 @@ public class SantoriniTrainer {
             """)
 
             // Phase 1: Self-play
-            selfPlayPhase(iteration: iteration)
+            await selfPlayPhase(iteration: iteration)
             replayBuffer.checkDiversity()
             // Phase 2: Training
             trainingPhase(iteration: iteration)
             // Phase 3: Evaluation
             if iteration % config.evaluationInterval == 0 {
-                evaluationPhase(iteration: iteration)
+                await evaluationPhase(iteration: iteration)
             }
             // Phase 4: Checkpointing
             if iteration % config.checkpointInterval == 0 {
@@ -93,7 +93,7 @@ public class SantoriniTrainer {
         checkpointPhase(iteration: -1)
     }
 
-    private func selfPlayPhase(iteration: Int) {
+    private func selfPlayPhase(iteration: Int) async {
         print("Beginning self-play...")
         model.train(false)
         let iterations = self.config.MCTSSimulations
@@ -103,15 +103,75 @@ public class SantoriniTrainer {
         let qualityInterval = max(1, config.sampleQualityInterval)
         let shouldReportQuality = iteration % qualityInterval == 0 && config.sampleQualitySampleCount > 0
 
+        let evaluator = BatchedEvaluator(
+            net: model,
+            maxBatchSize: config.selfPlayBatchSize,
+            timeoutMicroseconds: config.batchTimeoutMicroseconds
+        )
+
+        let gamesPerIteration = config.gamesPerIteration
+        let maxConcurrency = config.selfPlayConcurrency > 0
+            ? config.selfPlayConcurrency
+            : gamesPerIteration
+        let baseSeed = UInt64(iteration) &* 6364136223846793005 &+ 1
+
         let start = Date().timeIntervalSince1970
-        var truncatedGames = 0
+        var results: [SelfPlayResult] = []
+        results.reserveCapacity(gamesPerIteration)
         var completedGames = 0
+
+        await withTaskGroup(of: SelfPlayResult.self) { group in
+            for gameIndex in 0 ..< gamesPerIteration {
+                if group.isCancelled { break }
+
+                // Backpressure: limit concurrency
+                if gameIndex >= maxConcurrency {
+                    if let result = await group.next() {
+                        results.append(result)
+                        completedGames += 1
+                        if completedGames % 5 == 0 {
+                            print("Completed self-play \(completedGames)/\(gamesPerIteration)")
+                        }
+                    }
+                }
+
+                let gameSeed = baseSeed &+ UInt64(gameIndex)
+                let net = self.model
+                group.addTask {
+                    await selfPlay.runBatched(
+                        evaluator: evaluator,
+                        net: net,
+                        iterations: iterations,
+                        noise: noise,
+                        valueTargetStrategy: valueTargetStrategy,
+                        seed: gameSeed
+                    )
+                }
+            }
+
+            // Collect remaining results
+            for await result in group {
+                results.append(result)
+                completedGames += 1
+                if completedGames % 5 == 0 || completedGames == gamesPerIteration {
+                    print("Completed self-play \(completedGames)/\(gamesPerIteration)")
+                }
+            }
+        }
+        let end = Date().timeIntervalSince1970
+        print("Self play took: \(String(format: "%.1f", end - start))s")
+
+        // Log batching diagnostics
+        let diag = await evaluator.diagnostics()
+        print("Batching: \(diag.totalBatches) batches, \(diag.totalEvaluations) evals, avg batch size \(String(format: "%.1f", diag.avgBatchSize))")
+
+        // Process results
+        var truncatedGames = 0
         var sampler = ReservoirSampler<TrainingSample>(
             capacity: config.sampleQualitySampleCount,
             seed: UInt64(iteration)
         )
-        func handleResult(_ result: SelfPlayResult) {
-            completedGames += 1
+        for result in results {
             if result.wasTruncated {
                 truncatedGames += 1
             } else {
@@ -120,24 +180,9 @@ public class SantoriniTrainer {
                     sampler.add(contentsOf: result.samples)
                 }
             }
-            if completedGames % 5 == 0 || completedGames == config.gamesPerIteration {
-                print("Completed self-play \(completedGames)/\(config.gamesPerIteration)")
-            }
         }
 
-        for _ in 1 ... self.config.gamesPerIteration {
-            let result = selfPlay.runWithDiagnostics(
-                evaluator: model,
-                iterations: iterations,
-                noise: noise,
-                valueTargetStrategy: valueTargetStrategy
-            )
-            handleResult(result)
-        }
-        let end = Date().timeIntervalSince1970
-        print("Self play took: \(end-start)")
-
-        totalGamesPlayed += config.gamesPerIteration
+        totalGamesPlayed += gamesPerIteration
         if truncatedGames > 0 {
             print("Self-play ended (\(replayBuffer.count) training samples, \(truncatedGames) truncated games).")
         } else {
@@ -768,19 +813,6 @@ public class SantoriniTrainer {
         }
     }
 
-    private struct SeededGenerator: RandomNumberGenerator {
-        private var state: UInt64
-
-        init(seed: UInt64) {
-            self.state = seed
-        }
-
-        mutating func next() -> UInt64 {
-            state = state &* 6364136223846793005 &+ 1442695040888963407
-            return state
-        }
-    }
-
     private func policyLoss(
         logits: MLXArray,
         target: MLXArray
@@ -797,11 +829,11 @@ public class SantoriniTrainer {
         mseLoss(predictions: predicted, targets: target, reduction: .mean)
     }
 
-    private func evaluationPhase(iteration: Int) {
+    private func evaluationPhase(iteration: Int) async {
         print("Beginning evaluation...")
         model.train(false)
         bestModel.train(false)
-        let result = playMatches(
+        let result = await playMatches(
             current: model,
             best: bestModel,
             games: config.evaluationGames
@@ -839,38 +871,102 @@ public class SantoriniTrainer {
         current: SantoriniNet,
         best: SantoriniNet,
         games: Int
-    ) -> (winsCurrent: Int, winsBest: Int, draws: Int) {
+    ) async -> (winsCurrent: Int, winsBest: Int, draws: Int) {
+        let currentEvaluator = BatchedEvaluator(
+            net: current,
+            maxBatchSize: config.selfPlayBatchSize,
+            timeoutMicroseconds: config.batchTimeoutMicroseconds
+        )
+        let bestEvaluator = BatchedEvaluator(
+            net: best,
+            maxBatchSize: config.selfPlayBatchSize,
+            timeoutMicroseconds: config.batchTimeoutMicroseconds
+        )
+        let mctsIterations = config.MCTSSimulations
+        let baseSeed: UInt64 = 99999
+
+        let results: [(winner: Player?, currentPlaysFirst: Bool)] = await withTaskGroup(
+            of: (Int, Player?).self
+        ) { group in
+            for game in 0 ..< games {
+                let gameSeed = baseSeed &+ UInt64(game)
+                let currentPlaysFirst = (game % 2 == 0)
+                group.addTask {
+                    let winner = await SantoriniTrainer.playEvalGame(
+                        currentEvaluator: currentEvaluator,
+                        bestEvaluator: bestEvaluator,
+                        currentPlaysFirst: currentPlaysFirst,
+                        iterations: mctsIterations,
+                        seed: gameSeed
+                    )
+                    return (game, winner)
+                }
+            }
+
+            var collected: [(Int, Player?, Bool)] = []
+            collected.reserveCapacity(games)
+            for await (game, winner) in group {
+                collected.append((game, winner, game % 2 == 0))
+            }
+            collected.sort { $0.0 < $1.0 }
+            return collected.map { (winner: $0.1, currentPlaysFirst: $0.2) }
+        }
+
         var winsCurrent = 0
         var winsBest = 0
         var draws = 0
-
-        for game in 0 ..< games {
-            let currentNetworkPlaysFirst = (game % 2 == 0)
-            if currentNetworkPlaysFirst {
-                if let winner = aiVSPlay.play(
-                    player1: current,
-                    player2: best,
-                    iterations: config.MCTSSimulations
-                ) {
-                    winsCurrent += (winner == .one) ? 1 : 0
-                    winsBest += (winner == .two) ? 1 : 0
-                } else {
-                    draws += 1
-                }
+        for result in results {
+            guard let winner = result.winner else {
+                draws += 1
+                continue
+            }
+            if result.currentPlaysFirst {
+                winsCurrent += (winner == .one) ? 1 : 0
+                winsBest += (winner == .two) ? 1 : 0
             } else {
-                if let winner = aiVSPlay.play(
-                    player1: best,
-                    player2: current,
-                    iterations: config.MCTSSimulations
-                ) {
-                    winsCurrent += (winner == .two) ? 1 : 0
-                    winsBest += (winner == .one) ? 1 : 0
-                } else {
-                    draws += 1
-                }
+                winsCurrent += (winner == .two) ? 1 : 0
+                winsBest += (winner == .one) ? 1 : 0
             }
         }
         return (winsCurrent, winsBest, draws)
+    }
+
+    private static func playEvalGame(
+        currentEvaluator: BatchedEvaluator,
+        bestEvaluator: BatchedEvaluator,
+        currentPlaysFirst: Bool,
+        iterations: Int,
+        seed: UInt64
+    ) async -> Player? {
+        var state = Santorini.GameState()
+        var rng = SeededGenerator(seed: seed)
+
+        while !state.isOver {
+            let useCurrentNet: Bool
+            if currentPlaysFirst {
+                useCurrentNet = (state.turn == .one)
+            } else {
+                useCurrentNet = (state.turn == .two)
+            }
+            let evaluator = useCurrentNet ? currentEvaluator : bestEvaluator
+            let moveSeed = rng.next()
+
+            let evaluateClosure: @Sendable (Santorini.GameState) async -> (policy: [Float], value: Float) = { gameState in
+                let encoded = gameState.encoded()
+                return await evaluator.evaluate(encodedState: encoded)
+            }
+
+            let (action, _) = await asyncMCTS(
+                rootState: state,
+                evaluate: evaluateClosure,
+                iterations: iterations,
+                temperature: 0.0,
+                seed: moveSeed
+            )
+            guard let action else { return nil }
+            state = state.applying(move: action)
+        }
+        return state.winner
     }
 
     private func checkpointPhase(iteration: Int) {
