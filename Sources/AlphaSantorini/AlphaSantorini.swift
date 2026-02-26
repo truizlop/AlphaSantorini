@@ -92,8 +92,8 @@ struct AlphaSantorini: AsyncParsableCommand {
         @Option(help: "Max batch size for batched NN evaluation during self-play.")
         var selfPlayBatchSize: Int = 128
 
-        @Option(help: "Max concurrent self-play games (0 = all games).")
-        var selfPlayConcurrency: Int = 0
+        @Option(help: "Max concurrent self-play games (0 = auto).")
+        var selfPlayConcurrency: Int = 150
 
         @Option(help: "Batch flush timeout in microseconds.")
         var batchTimeoutMicroseconds: UInt64 = 100

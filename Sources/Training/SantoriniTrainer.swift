@@ -112,7 +112,7 @@ public class SantoriniTrainer {
         let gamesPerIteration = config.gamesPerIteration
         let targetConcurrency = config.selfPlayConcurrency > 0
             ? config.selfPlayConcurrency
-            : 2 * config.selfPlayBatchSize
+            : config.selfPlayBatchSize + config.selfPlayBatchSize / 2
         // Run enough games to keep targetConcurrency slots full throughout;
         // extra results are still useful training data for the replay buffer.
         let totalGames = max(gamesPerIteration, targetConcurrency)
