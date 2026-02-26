@@ -110,27 +110,30 @@ public class SantoriniTrainer {
         )
 
         let gamesPerIteration = config.gamesPerIteration
-        let maxConcurrency = config.selfPlayConcurrency > 0
+        let targetConcurrency = config.selfPlayConcurrency > 0
             ? config.selfPlayConcurrency
-            : gamesPerIteration
+            : 2 * config.selfPlayBatchSize
+        // Run enough games to keep targetConcurrency slots full throughout;
+        // extra results are still useful training data for the replay buffer.
+        let totalGames = max(gamesPerIteration, targetConcurrency)
         let baseSeed = UInt64(iteration) &* 6364136223846793005 &+ 1
 
         let start = Date().timeIntervalSince1970
         var results: [SelfPlayResult] = []
-        results.reserveCapacity(gamesPerIteration)
+        results.reserveCapacity(totalGames)
         var completedGames = 0
 
         await withTaskGroup(of: SelfPlayResult.self) { group in
-            for gameIndex in 0 ..< gamesPerIteration {
+            for gameIndex in 0 ..< totalGames {
                 if group.isCancelled { break }
 
                 // Backpressure: limit concurrency
-                if gameIndex >= maxConcurrency {
+                if gameIndex >= targetConcurrency {
                     if let result = await group.next() {
                         results.append(result)
                         completedGames += 1
-                        if completedGames % 5 == 0 {
-                            print("Completed self-play \(completedGames)/\(gamesPerIteration)")
+                        if completedGames % 10 == 0 {
+                            print("Completed self-play \(completedGames)/\(totalGames)")
                         }
                     }
                 }
@@ -153,8 +156,8 @@ public class SantoriniTrainer {
             for await result in group {
                 results.append(result)
                 completedGames += 1
-                if completedGames % 5 == 0 || completedGames == gamesPerIteration {
-                    print("Completed self-play \(completedGames)/\(gamesPerIteration)")
+                if completedGames % 10 == 0 || completedGames == totalGames {
+                    print("Completed self-play \(completedGames)/\(totalGames)")
                 }
             }
         }
@@ -182,7 +185,7 @@ public class SantoriniTrainer {
             }
         }
 
-        totalGamesPlayed += gamesPerIteration
+        totalGamesPlayed += results.count
         if truncatedGames > 0 {
             print("Self-play ended (\(replayBuffer.count) training samples, \(truncatedGames) truncated games).")
         } else {

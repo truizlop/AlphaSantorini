@@ -53,7 +53,7 @@ public struct TrainingConfig {
         noiseAnnealIterations: Int = 150,
         noiseEpsilonFloor: Float = 0.05,
         valueTargetStrategy: ValueTargetStrategy = .terminalOutcome,
-        selfPlayBatchSize: Int = 64,
+        selfPlayBatchSize: Int = 128,
         selfPlayConcurrency: Int = 0,
         batchTimeoutMicroseconds: UInt64 = 100,
         batchSize: Int = 128,

@@ -90,7 +90,7 @@ struct AlphaSantorini: AsyncParsableCommand {
         var checkpointInterval: Int = 10
 
         @Option(help: "Max batch size for batched NN evaluation during self-play.")
-        var selfPlayBatchSize: Int = 64
+        var selfPlayBatchSize: Int = 128
 
         @Option(help: "Max concurrent self-play games (0 = all games).")
         var selfPlayConcurrency: Int = 0
