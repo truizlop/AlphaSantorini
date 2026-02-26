@@ -182,7 +182,7 @@ public class SelfPlay: @unchecked Sendable {
         }
     }
 
-    private func normalizePolicy(_ policy: Policy, move: Int) -> Policy {
+    func normalizePolicy(_ policy: Policy, move: Int) -> Policy {
         let sum = policy.values.reduce(0, +)
         guard sum.isFinite else {
             print("⚠️ Policy sum is not finite at move \(move).")
@@ -208,7 +208,7 @@ public class SelfPlay: @unchecked Sendable {
         return policy
     }
 
-    private func temperature(
+    func temperature(
         for move: Int,
         enabled: Bool
     ) -> Float {

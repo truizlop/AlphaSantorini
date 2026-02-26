@@ -5,7 +5,7 @@
 //  Created by Tomás Ruiz-López on 1/15/26.
 //
 
-public enum Player {
+public enum Player: Sendable {
     case one
     case two
 

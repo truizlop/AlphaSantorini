@@ -134,7 +134,7 @@ private func runMctsSingle<State: GameState, Evaluator: PolicyValueNetwork, R: R
     )
 }
 
-private func bestMove<State, R: RandomNumberGenerator>(
+func bestMove<State, R: RandomNumberGenerator>(
     from node: MCTSNode<State>,
     temperature: Float,
     rng: inout R
@@ -182,7 +182,7 @@ private func bestMove<State, R: RandomNumberGenerator>(
     return nil
 }
 
-private func visitDistribution<State: GameState>(
+func visitDistribution<State: GameState>(
     from node: MCTSNode<State>,
     temperature: Float
 ) -> [State.Move: Float] {
