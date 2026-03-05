@@ -1,0 +1,2 @@
+checkpoints/*.safetensors filter=lfs diff=lfs merge=lfs -text
+web/public/models/*.onnx filter=lfs diff=lfs merge=lfs -text
