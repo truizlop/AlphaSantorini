@@ -186,6 +186,11 @@ export class GameController {
     this.hideGameOver();
 
     if (this.summary.turn !== this.humanPlayer) {
+      // Double-rAF: first frame renders the scene, second ensures paint is
+      // flushed to screen before the AI computation blocks the main thread.
+      await new Promise<void>((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => r()))
+      );
       await this.handleAiTurn();
     }
   }
@@ -218,6 +223,13 @@ export class GameController {
     }
     this.phaseEl.textContent = this.summary.phase === "placement" ? "Placement" : "Play";
     this.turnEl.textContent = this.summary.turn === "one" ? "Player One" : "Player Two";
+
+    // Color-code turn indicator
+    this.turnEl.classList.remove("turn-one", "turn-two", "human-turn");
+    this.turnEl.classList.add(this.summary.turn === "one" ? "turn-one" : "turn-two");
+    if (this.summary.turn === this.humanPlayer) {
+      this.turnEl.classList.add("human-turn");
+    }
 
     if (this.summary.turn !== this.humanPlayer) {
     const modelStatus = getModelReadyStatus();
@@ -407,11 +419,11 @@ export class GameController {
 
     if (winner === 1) {
       this.gameOverWinnerEl.textContent = "Player One Wins!";
-      this.gameOverSubtitleEl.textContent = "The teal builders claim the summit.";
+      this.gameOverSubtitleEl.textContent = "The blue builders claim the summit.";
       this.gameOverEl.classList.add("winner-one");
     } else if (winner === -1) {
       this.gameOverWinnerEl.textContent = "Player Two Wins!";
-      this.gameOverSubtitleEl.textContent = "The coral builders reach the heights.";
+      this.gameOverSubtitleEl.textContent = "The gray builders reach the heights.";
       this.gameOverEl.classList.add("winner-two");
     } else {
       this.gameOverWinnerEl.textContent = "Draw Game";

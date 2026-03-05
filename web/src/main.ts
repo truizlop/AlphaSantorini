@@ -12,6 +12,8 @@ if (!sceneContainer) {
 
 const statusEl = document.getElementById("status");
 const aiStatusEl = document.getElementById("ai-status");
+const loadingOverlay = document.getElementById("loading-overlay");
+const loadingStage = document.getElementById("loading-stage");
 
 let controller: GameController;
 const scene = new BoardScene(sceneContainer, (row, col) => {
@@ -21,7 +23,19 @@ const scene = new BoardScene(sceneContainer, (row, col) => {
 });
 controller = new GameController(scene);
 
+function dismissLoading(): void {
+  if (loadingOverlay) {
+    loadingOverlay.classList.add("fade-out");
+    loadingOverlay.addEventListener("transitionend", () => {
+      loadingOverlay.remove();
+    }, { once: true });
+  }
+}
+
 async function bootstrap(): Promise<void> {
+  if (loadingStage) {
+    loadingStage.textContent = "Booting engine...";
+  }
   if (statusEl) {
     statusEl.textContent = "Booting Santorini engine...";
   }
@@ -39,7 +53,14 @@ async function bootstrap(): Promise<void> {
     if (aiStatusEl) {
       aiStatusEl.textContent = "AI offline";
     }
+    if (loadingStage) {
+      loadingStage.textContent = "Engine failed to load.";
+    }
     return;
+  }
+
+  if (loadingStage) {
+    loadingStage.textContent = "Loading AI...";
   }
 
   try {
@@ -48,6 +69,7 @@ async function bootstrap(): Promise<void> {
     console.warn("ONNX model unavailable, falling back to baseline MCTS.", error);
   }
 
+  dismissLoading();
   await controller.newGame();
 }
 

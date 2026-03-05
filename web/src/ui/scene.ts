@@ -8,7 +8,7 @@ const TILE_TOP_HEIGHT = 0.06;
 const TILE_TOP = TILE_BASE_HEIGHT + TILE_TOP_HEIGHT;
 const LEVEL_HEIGHT = 0.22;
 const LEVEL_SIZES = [0.9, 0.76, 0.62];
-const LEVEL_COLORS = [0xf3f7fb, 0xe3ecf6, 0xd4e1ef];
+const LEVEL_COLORS = [0xf5f0e8, 0xefe8dc, 0xe8e0d2];
 
 export type HighlightType = "placement" | "move" | "build";
 
@@ -29,6 +29,7 @@ export class BoardScene {
   private selectedWorkerKey: string | null = null;
   private onTileClick: (row: number, col: number) => void;
   private startTime = performance.now();
+  private edgeGlowMat: THREE.LineBasicMaterial | null = null;
   private dragPointerId: number | null = null;
   private dragStart = new THREE.Vector2();
   private dragLast = new THREE.Vector2();
@@ -41,7 +42,7 @@ export class BoardScene {
     this.container = container;
     this.onTileClick = onTileClick;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x0b121c, 5, 18);
+    this.scene.fog = new THREE.Fog(0x87ceeb, 8, 22);
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
     this.camera.position.set(4.2, 5.2, 6.6);
     this.camera.lookAt(0, 0, 0);
@@ -55,7 +56,7 @@ export class BoardScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.setClearColor(0x0b121c, 0);
+    this.renderer.setClearColor(0x87ceeb, 0);
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -88,17 +89,17 @@ export class BoardScene {
   private buildBoard(): void {
     const tileTopGeo = new THREE.BoxGeometry(0.92, TILE_TOP_HEIGHT, 0.92);
     const tileBaseGeo = new THREE.BoxGeometry(0.98, TILE_BASE_HEIGHT, 0.98);
-    const topColor = new THREE.Color(0x1d3550);
+    const topColor = new THREE.Color(0x5a8c3a);
     const tileBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x091321,
+      color: 0x4a7830,
       roughness: 0.95,
       metalness: 0.1,
     });
     const edgeGeo = new THREE.EdgesGeometry(tileTopGeo);
     const edgeMat = new THREE.LineBasicMaterial({
-      color: 0x45d1e5,
+      color: 0xd4cbb8,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.5,
     });
 
     for (let row = 0; row < BOARD_SIZE; row += 1) {
@@ -108,7 +109,7 @@ export class BoardScene {
           color: topColor.clone().offsetHSL(0, 0.02, jitter),
           roughness: 0.6,
           metalness: 0.25,
-          emissive: new THREE.Color(0x0b1b2a),
+          emissive: new THREE.Color(0x3a6828),
           emissiveIntensity: 0.4,
         });
         const tileGroup = new THREE.Group();
@@ -134,10 +135,10 @@ export class BoardScene {
 
     const frameGeo = new THREE.BoxGeometry(5.9, 0.14, 5.9);
     const frameMat = new THREE.MeshStandardMaterial({
-      color: 0x132339,
+      color: 0xe8e0d2,
       roughness: 0.7,
       metalness: 0.25,
-      emissive: new THREE.Color(0x10314a),
+      emissive: new THREE.Color(0xd4cbb8),
       emissiveIntensity: 0.45,
     });
     const frame = new THREE.Mesh(frameGeo, frameMat);
@@ -147,7 +148,7 @@ export class BoardScene {
 
     const baseGeo = new THREE.BoxGeometry(6.4, 0.7, 6.4);
     const boardBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x0a111b,
+      color: 0x5c3322,
       roughness: 0.9,
       metalness: 0.1,
     });
@@ -155,6 +156,24 @@ export class BoardScene {
     base.position.y = -0.5;
     base.receiveShadow = true;
     this.boardGroup.add(base);
+
+    // Board edge glow
+    const half = 5.9 / 2;
+    const edgeY = 0.01;
+    const edgePoints = [
+      new THREE.Vector3(-half, edgeY, -half),
+      new THREE.Vector3(half, edgeY, -half),
+      new THREE.Vector3(half, edgeY, half),
+      new THREE.Vector3(-half, edgeY, half),
+    ];
+    const edgeLoopGeo = new THREE.BufferGeometry().setFromPoints(edgePoints);
+    this.edgeGlowMat = new THREE.LineBasicMaterial({
+      color: 0xd4cbb8,
+      transparent: true,
+      opacity: 0.3,
+    });
+    const edgeLoop = new THREE.LineLoop(edgeLoopGeo, this.edgeGlowMat);
+    this.boardGroup.add(edgeLoop);
   }
 
   private updateBuildings(summary: StateSummary): void {
@@ -169,11 +188,13 @@ export class BoardScene {
       for (let level = 0; level < levels; level += 1) {
         const stack = this.createBuildingLevel(level);
         stack.position.set(x, TILE_TOP + LEVEL_HEIGHT / 2 + level * LEVEL_HEIGHT, z);
+        stack.userData = { row, col };
         this.buildingsGroup.add(stack);
       }
       if (height >= 4) {
         const dome = this.createDome();
         dome.position.set(x, TILE_TOP + LEVEL_HEIGHT * 3, z);
+        dome.userData = { row, col };
         this.buildingsGroup.add(dome);
       }
     });
@@ -193,11 +214,23 @@ export class BoardScene {
   }
 
   private applyHighlights(): void {
-    const defaultBase = new THREE.Color(0x162639);
-    const placement = new THREE.Color(0x3fdca0);
-    const move = new THREE.Color(0x45d1e5);
-    const build = new THREE.Color(0xf2c14f);
-    const hover = new THREE.Color(0x8fe5ff);
+    const defaultBase = new THREE.Color(0x4a7830);
+    const placement = new THREE.Color(0x7bc462);
+    const move = new THREE.Color(0x4a90d9);
+    const build = new THREE.Color(0xd4a530);
+    const hover = new THREE.Color(0x7ab8e8);
+    const noEmissive = new THREE.Color(0x000000);
+
+    // Map of highlight emissive colors for buildings
+    const highlightEmissive: Record<string, THREE.Color> = {
+      placement: new THREE.Color(0x5a9c42),
+      move: new THREE.Color(0x3a70a9),
+      build: new THREE.Color(0xa88520),
+    };
+    const hoverEmissive = new THREE.Color(0x5a98c8);
+
+    // Track which tile keys are highlighted/hovered for buildings
+    const activeTiles = new Set<string>();
 
     for (const tile of this.tileMeshes) {
       const mat = tile.material as THREE.MeshStandardMaterial;
@@ -211,8 +244,49 @@ export class BoardScene {
       if (this.hoverKey === key) {
         color.lerp(hover, 0.6);
       }
+      if (highlight || this.hoverKey === key) {
+        activeTiles.add(key);
+      }
       mat.color = color;
       mat.needsUpdate = true;
+    }
+
+    // Apply emissive glow to buildings on highlighted/hovered tiles
+    for (const group of this.buildingsGroup.children) {
+      const { row, col } = group.userData as { row?: number; col?: number };
+      if (row == null || col == null) continue;
+      const key = tileKey(row, col);
+      const highlight = this.highlightMap.get(key);
+      const isHovered = this.hoverKey === key;
+      const isActive = highlight != null || isHovered;
+
+      let emissive = noEmissive;
+      let intensity = 0.15;
+      if (highlight && highlightEmissive[highlight]) {
+        emissive = highlightEmissive[highlight];
+        intensity = 0.6;
+      }
+      if (isHovered) {
+        emissive = hoverEmissive;
+        intensity = 0.75;
+      }
+
+      group.traverse((child: THREE.Object3D) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+          if (isActive) {
+            child.material.emissive = emissive;
+            child.material.emissiveIntensity = intensity;
+          } else {
+            // Restore default emissive from stored values or reset
+            const defaults = child.userData?.defaultEmissive as { color: THREE.Color; intensity: number } | undefined;
+            if (defaults) {
+              child.material.emissive = defaults.color;
+              child.material.emissiveIntensity = defaults.intensity;
+            }
+          }
+          child.material.needsUpdate = true;
+        }
+      });
     }
   }
 
@@ -236,7 +310,23 @@ export class BoardScene {
       const tileHit = this.pickTileHit();
       this.hoverKey = tileHit ? tileKey(tileHit.row, tileHit.col) : null;
     }
+    // Cursor feedback: pointer only over highlighted tiles or own workers
+    const isInteractive = this.hoverKey !== null && (
+      this.highlightMap.has(this.hoverKey) || this.isOwnWorkerAt(this.hoverKey)
+    );
+    this.container.classList.toggle("interactive", isInteractive);
     this.applyHighlights();
+  }
+
+  private isOwnWorkerAt(key: string): boolean {
+    for (const worker of this.workersGroup.children) {
+      if (worker.userData?.row != null && worker.userData?.col != null) {
+        if (tileKey(worker.userData.row, worker.userData.col) === key) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private handleClick(event: PointerEvent | MouseEvent): void {
@@ -330,10 +420,10 @@ export class BoardScene {
   }
 
   private addLights(): void {
-    const hemi = new THREE.HemisphereLight(0x1c2a3f, 0x0a111b, 0.75);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xb0d4e8, 1.0);
     this.scene.add(hemi);
 
-    const dir = new THREE.DirectionalLight(0xd8e9ff, 0.9);
+    const dir = new THREE.DirectionalLight(0xfff8e7, 1.1);
     dir.position.set(6, 8, 5);
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
@@ -346,11 +436,11 @@ export class BoardScene {
     dir.shadow.camera.far = 20;
     this.scene.add(dir);
 
-    const fill = new THREE.DirectionalLight(0x2aa9c4, 0.4);
+    const fill = new THREE.DirectionalLight(0x87ceeb, 0.5);
     fill.position.set(-6, 4, -5);
     this.scene.add(fill);
 
-    const rim = new THREE.DirectionalLight(0xf2c14f, 0.25);
+    const rim = new THREE.DirectionalLight(0xffd080, 0.3);
     rim.position.set(-2, 6, 6);
     this.scene.add(rim);
   }
@@ -362,6 +452,22 @@ export class BoardScene {
     this.boardGroup.position.y = -0.6 + lift * 0.6;
     const rotationDelta = this.rotationTarget - this.boardGroup.rotation.y;
     this.boardGroup.rotation.y += rotationDelta * 0.08;
+
+    // Worker idle bob
+    for (let i = 0; i < this.workersGroup.children.length; i++) {
+      const worker = this.workersGroup.children[i];
+      if (!worker || worker.userData.baseY === undefined) continue;
+      const isSelected = worker.userData.key === (this.selectedWorkerKey ? `${this.selectedWorkerKey}` : null);
+      const amp = isSelected ? 0.025 : 0.015;
+      const offset = i * 1.3;
+      worker.position.y = worker.userData.baseY + Math.sin(elapsed * Math.PI + offset) * amp;
+    }
+
+    // Board edge glow pulse
+    if (this.edgeGlowMat) {
+      this.edgeGlowMat.opacity = 0.3 + 0.15 * Math.sin(elapsed * 1.5);
+    }
+
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -388,6 +494,19 @@ export class BoardScene {
   }
 
   private pickTileHit(): { row: number; col: number } | null {
+    // Check buildings first (they sit on top of tiles and occlude them)
+    const buildingHits = this.raycaster.intersectObjects(this.buildingsGroup.children, true);
+    for (const hit of buildingHits) {
+      let object: THREE.Object3D | null = hit.object;
+      while (object) {
+        const row = object.userData?.row;
+        const col = object.userData?.col;
+        if (Number.isInteger(row) && Number.isInteger(col)) {
+          return { row, col };
+        }
+        object = object.parent;
+      }
+    }
     const hits = this.raycaster.intersectObjects(this.tileMeshes, false);
     if (hits.length === 0) {
       return null;
@@ -485,8 +604,8 @@ export class BoardScene {
     const bodyGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.38, 16);
     const headGeo = new THREE.SphereGeometry(0.16, 16, 12);
 
-    const color = worker.player === "one" ? 0x45d1e5 : 0xf2c14f;
-    const accent = worker.id === "one" ? 0xf3f7fb : 0x0c1521;
+    const color = worker.player === "one" ? 0x4a90d9 : 0x8a7b6b;
+    const accent = worker.id === "one" ? 0xf0ebe5 : 0x6b5c4d;
 
     const bodyMat = new THREE.MeshStandardMaterial({
       color,
@@ -515,13 +634,13 @@ export class BoardScene {
     }
     const standHeight = tileTop + Math.min(heightIndex, 4) * levelHeight + 0.2;
     group.position.set((worker.col - 2) * tileSize, standHeight, (worker.row - 2) * tileSize);
-    group.userData = { key: this.workerKey(worker), row: worker.row, col: worker.col };
+    group.userData = { key: this.workerKey(worker), row: worker.row, col: worker.col, baseY: standHeight };
     return group;
   }
 
   private addSelectionRing(group: THREE.Group, player: "one" | "two"): void {
     const ringGeo = new THREE.TorusGeometry(0.33, 0.045, 12, 24);
-    const ringColor = player === "one" ? 0x45d1e5 : 0xf2c14f;
+    const ringColor = player === "one" ? 0x4a90d9 : 0x8a7b6b;
     const ringMat = new THREE.MeshStandardMaterial({
       color: ringColor,
       emissive: ringColor,
@@ -547,25 +666,27 @@ export class BoardScene {
       color: LEVEL_COLORS[Math.min(level, LEVEL_COLORS.length - 1)],
       roughness: 0.65,
       metalness: 0.08,
-      emissive: new THREE.Color(0x1a2c3f),
-      emissiveIntensity: 0.15,
+      emissive: new THREE.Color(0xd4cbb8),
+      emissiveIntensity: 0.1,
     });
     const ledgeMat = new THREE.MeshStandardMaterial({
-      color: 0xcfdbe8,
+      color: 0xe8e0d2,
       roughness: 0.7,
       metalness: 0.06,
-      emissive: new THREE.Color(0x122131),
-      emissiveIntensity: 0.12,
+      emissive: new THREE.Color(0xc8bfb0),
+      emissiveIntensity: 0.1,
     });
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.castShadow = true;
     body.receiveShadow = true;
+    body.userData = { defaultEmissive: { color: bodyMat.emissive.clone(), intensity: bodyMat.emissiveIntensity } };
     const ledge = new THREE.Mesh(ledgeGeo, ledgeMat);
     ledge.position.y = LEVEL_HEIGHT / 2 - 0.02;
     ledge.castShadow = true;
     ledge.receiveShadow = true;
+    ledge.userData = { defaultEmissive: { color: ledgeMat.emissive.clone(), intensity: ledgeMat.emissiveIntensity } };
     group.add(body);
     group.add(ledge);
     return group;
@@ -585,19 +706,19 @@ export class BoardScene {
     );
     const baseGeo = new THREE.CylinderGeometry(domeRadius * 0.92, domeRadius, baseHeight, 24);
     const domeMat = new THREE.MeshPhysicalMaterial({
-      color: 0x3fd0f2,
+      color: 0x2255bb,
       roughness: 0.18,
       metalness: 0.1,
       clearcoat: 0.8,
       clearcoatRoughness: 0.2,
-      emissive: new THREE.Color(0x1b6f8a),
+      emissive: new THREE.Color(0x1a3d7a),
       emissiveIntensity: 0.45,
     });
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x1f3b55,
+      color: 0xe8e0d2,
       roughness: 0.5,
       metalness: 0.2,
-      emissive: new THREE.Color(0x0e2335),
+      emissive: new THREE.Color(0xc8bfb0),
       emissiveIntensity: 0.3,
     });
 
@@ -606,9 +727,11 @@ export class BoardScene {
     base.position.y = baseHeight / 2;
     base.castShadow = true;
     base.receiveShadow = true;
+    base.userData = { defaultEmissive: { color: baseMat.emissive.clone(), intensity: baseMat.emissiveIntensity } };
     const dome = new THREE.Mesh(domeGeo, domeMat);
     dome.position.y = baseHeight;
     dome.castShadow = true;
+    dome.userData = { defaultEmissive: { color: (domeMat as THREE.MeshStandardMaterial).emissive.clone(), intensity: (domeMat as THREE.MeshStandardMaterial).emissiveIntensity } };
     group.add(base);
     group.add(dome);
     return group;
