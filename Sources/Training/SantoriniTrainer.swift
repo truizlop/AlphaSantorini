@@ -271,11 +271,13 @@ public class SantoriniTrainer {
                 let splits = targets.split(indices: [valuesPerPolicy], axis: 1)
                 if shouldLog {
                     stepTargetPolicySum = splits[0].sum(axis: 1)
-                    let policyProbs = softmax(policyLogits, axis: -1)
+                    let mask = splits[0] .> 0
+                    let maskedLogits = MLX.where(mask, policyLogits, MLXArray(-1e9))
+                    let policyProbs = softmax(maskedLogits, axis: -1)
                     stepPredPolicySum = policyProbs.sum(axis: 1)
                     let eps: Float = 1e-8
                     let logTarget = log(splits[0] + eps)
-                    let logPred = logSoftmax(policyLogits, axis: -1)
+                    let logPred = logSoftmax(maskedLogits, axis: -1)
                     stepTargetEntropy = -sum(splits[0] * logTarget, axis: 1)
                     stepPredEntropy = -sum(policyProbs * logPred, axis: 1)
                     let crossEntropy = -sum(splits[0] * logPred, axis: 1)
@@ -821,7 +823,9 @@ public class SantoriniTrainer {
         target: MLXArray
     ) -> MLXArray {
         let batchSize = max(1, logits.shape[0])
-        let logProbs = logSoftmax(logits, axis: -1)
+        let mask = target .> 0
+        let maskedLogits = MLX.where(mask, logits, MLXArray(-1e9))
+        let logProbs = logSoftmax(maskedLogits, axis: -1)
         return -sum(target * logProbs) / Float(batchSize)
     }
 

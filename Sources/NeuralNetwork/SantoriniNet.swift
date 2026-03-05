@@ -20,7 +20,7 @@ public class SantoriniNet: Module, @unchecked Sendable {
 
     public init(
         filters: Int = 256,
-        residualBlocks: Int = 5
+        residualBlocks: Int = 8
     ) {
         self.inputBlock = ConvolutionBlock(
             inChannels: 9,
