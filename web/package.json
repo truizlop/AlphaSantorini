@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "onnxruntime-node": "^1.24.2",
     "onnxruntime-web": "^1.18.0",
     "three": "^0.168.0"
   },

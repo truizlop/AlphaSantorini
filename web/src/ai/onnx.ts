@@ -19,7 +19,7 @@ export async function loadModel(): Promise<void> {
     return;
   }
 
-  const wasmBase = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+  const wasmBase = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/";
   ort.env.wasm.wasmPaths = {
     mjs: `${wasmBase}ort-wasm-simd-threaded.mjs`,
     wasm: `${wasmBase}ort-wasm-simd-threaded.wasm`,
@@ -32,10 +32,12 @@ export async function loadModel(): Promise<void> {
     console.warn(`ONNX model not found at ${modelUrl}`);
     return;
   }
+  console.log("[ONNX] Creating inference session...");
   session = await ort.InferenceSession.create(modelUrl, {
     executionProviders: ["wasm"],
     graphOptimizationLevel: "all",
   });
+  console.log("[ONNX] Session created successfully. Input names:", session.inputNames, "Output names:", session.outputNames);
 }
 
 async function hasModelFile(url: string): Promise<boolean> {
@@ -58,13 +60,24 @@ async function hasModelFile(url: string): Promise<boolean> {
   }
 }
 
+let evalCount = 0;
+
 export async function evaluate(encoded: Float32Array): Promise<{ policy: Float32Array; value: number }> {
   if (!session) {
+    if (evalCount === 0) {
+      console.warn("[ONNX] evaluate called but session is NULL — using uniform fallback");
+    }
+    evalCount++;
     return { policy: new Float32Array(ACTION_TOTAL), value: 0 };
   }
-  const inputTensor = new ort.Tensor("float32", encoded, [1, encoded.length]);
+  const inputTensor = new ort.Tensor("float32", encoded, [1, 5, 5, 9]);
   const output = await session.run({ input: inputTensor });
   const policy = output.policy.data as Float32Array;
   const valueArray = output.value.data as Float32Array;
+  if (evalCount < 3) {
+    const topIdx = Array.from(policy).reduce((best, v, i, arr) => v > arr[best] ? i : best, 0);
+    console.log(`[ONNX] eval #${evalCount}: value=${valueArray[0]?.toFixed(4)}, topAction=${topIdx} (${policy[topIdx]?.toFixed(4)}), policyMax=${Math.max(...policy).toFixed(4)}`);
+  }
+  evalCount++;
   return { policy, value: valueArray[0] ?? 0 };
 }

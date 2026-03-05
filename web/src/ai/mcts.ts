@@ -44,7 +44,7 @@ class Node {
 
   puctScore(explorationConstant: number): number {
     const parentVisits = this.parent?.visits ?? 1;
-    const q = this.meanValue;
+    const q = -this.meanValue;
     const u = explorationConstant * this.prior * Math.sqrt(parentVisits) / (1 + this.visits);
     return q + u;
   }
@@ -95,9 +95,46 @@ function terminalValue(handle: number, summary: StateSummary): number {
   return winner === turnValue ? 1 : -1;
 }
 
+/**
+ * Encode the game state as a [5, 5, 9] NHWC Float32Array matching the
+ * neural network's training format (GameStateEncoding.swift).
+ *
+ * Planes: H0, H1, H2, H3, DOME, CURRENTW1, CURRENTW2, OTHERW1, OTHERW2
+ *
+ * We build this from getStateSummary() instead of the WASM encodeState()
+ * because the pre-built WASM binary uses an older 8-plane flat encoding.
+ */
+function encodeStateNHWC(handle: number): Float32Array {
+  const summary = wasm().getStateSummary(handle);
+  const out = new Float32Array(5 * 5 * 9); // [5, 5, 9] NHWC, zero-initialized
+
+  // Building heights → one-hot planes 0-4
+  // boardHeights[row * 5 + col] gives the raw height (0-4, where 4 = dome)
+  const heightToPlane = [0, 1, 2, 3, 4]; // H0, H1, H2, H3, DOME
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      const h = summary.boardHeights[r * 5 + c] ?? 0;
+      const plane = heightToPlane[h] ?? 0;
+      out[(r * 5 + c) * 9 + plane] = 1.0;
+    }
+  }
+
+  // Worker positions → planes 5-8
+  for (const worker of summary.workers) {
+    let plane: number;
+    if (worker.player === summary.turn) {
+      plane = worker.id === "one" ? 5 : 6; // CURRENTW1, CURRENTW2
+    } else {
+      plane = worker.id === "one" ? 7 : 8; // OTHERW1, OTHERW2
+    }
+    out[(worker.row * 5 + worker.col) * 9 + plane] = 1.0;
+  }
+
+  return out;
+}
+
 async function evaluateState(handle: number): Promise<PolicyValue> {
-  const encoded = wasm().encodeState(handle);
-  const input = Float32Array.from(encoded);
+  const input = encodeStateNHWC(handle);
   return evaluate(input);
 }
 
