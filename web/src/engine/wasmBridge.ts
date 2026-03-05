@@ -26,15 +26,27 @@ declare global {
 let wasmExports: SantoriniWasmExports | null = null;
 let wasmReady: Promise<void> | null = null;
 
+async function ensureWasmLoaderRegistered(): Promise<void> {
+  if (window.SantoriniWasmInitPromise) {
+    return;
+  }
+
+  // Resolve relative to the page URL (not this JS chunk URL), so it works
+  // with Vite base paths and GitHub Pages subpaths.
+  const loaderUrl = new URL(`${import.meta.env.BASE_URL}wasm-loader.js`, window.location.href).toString();
+  await import(/* @vite-ignore */ loaderUrl);
+}
+
 export async function initWasm(): Promise<void> {
   if (wasmReady) {
     return wasmReady;
   }
 
   wasmReady = (async () => {
+    await ensureWasmLoaderRegistered();
     const initPromise = window.SantoriniWasmInitPromise;
     if (!initPromise) {
-      throw new Error("SantoriniWasm init promise not found. Did the HTML bootstrap run?");
+      throw new Error("SantoriniWasm init promise not found after loading wasm-loader.js.");
     }
     const init = await initPromise;
     if (typeof init !== "function") {
