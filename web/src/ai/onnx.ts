@@ -26,7 +26,8 @@ export async function loadModel(): Promise<void> {
   };
   ort.env.wasm.numThreads = 1;
 
-  const modelUrl = `${import.meta.env.BASE_URL}models/santorini.onnx`;
+  const modelVersion = encodeURIComponent(__BUILD_ID__);
+  const modelUrl = `${import.meta.env.BASE_URL}models/santorini.onnx?v=${modelVersion}`;
   const modelAvailable = await hasModelFile(modelUrl);
   if (!modelAvailable) {
     console.warn(`ONNX model not found at ${modelUrl}`);
